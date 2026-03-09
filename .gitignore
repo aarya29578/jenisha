@@ -1,0 +1,54 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python virtual environment
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Flutter/Dart build
+jenisha_flutter/build/
+jenisha_flutter/.dart_tool/
+jenisha_flutter/.flutter-plugins
+jenisha_flutter/.flutter-plugins-dependencies
+jenisha_flutter/.packages
+*.iml
+
+# Firebase
+.firebase/
+.firebaserc
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Coverage
+coverage/

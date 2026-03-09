@@ -1,0 +1,149 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data.role == "super_admin";
+    }
+
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
+    }
+
+    // ================= ADMIN USERS =================
+    match /admin_users/{adminId} {
+      allow read: if isAdmin();
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    // ================= AGENT USERS =================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+
+      // Users can update their own doc; admins can update any user (approve/reject)
+      allow update: if isAuthenticated() &&
+        (request.auth.uid == userId || isAdmin());
+
+      allow delete: if isAdmin();
+
+      match /documents/{documentId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // ================= CATEGORIES =================
+    match /categories/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /serviceCategories/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ================= SERVICES =================
+    match /services/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ================= APPLICATIONS =================
+    match /applications/{doc} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /serviceApplications/{doc} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    match /service_applications/{doc} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // ================= DOCUMENT FIELDS =================
+    match /document_requirements/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    match /service_document_fields/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ================= BANNERS =================
+    match /banners/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ================= ANNOUNCEMENTS =================
+    match /announcements/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // ================= SETTINGS =================
+    match /settings/{doc} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ================= TRANSACTIONS =================
+    match /transactions/{doc} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+
+    match /agent_payments/{doc} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+
+    match /walletTransactions/{doc} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+    }
+
+    // ================= APPOINTMENT SERVICES =================
+    match /appointment_services/{doc} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ================= APPOINTMENT FIELDS =================
+    match /appointment_fields/{serviceId} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ================= APPOINTMENTS =================
+    match /appointments/{doc} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin() ||
+        (isAuthenticated() && request.auth.uid == resource.data.userId);
+      allow delete: if isAdmin();
+    }
+
+  }
+}

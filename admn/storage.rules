@@ -1,0 +1,33 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Profile images: authenticated users can read/write their own file only
+    match /profile_images/profile_{userId}.jpg {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024        // max 5 MB
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Banner images: only admins can write, anyone authenticated can read
+    match /banners/{imageId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Service / category logos: only admins can write, authenticated users can read
+    match /logos/{imageId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // General uploads (documents, etc.)
+    match /uploads/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+  }
+}

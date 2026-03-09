@@ -1,0 +1,332 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Helper function to get admin user document from admin_users collection
+    function getAdminData() {
+      return get(/databases/$(database)/documents/admin_users/$(request.auth.uid)).data;
+    }
+    
+    // Helper function to check if document exists in admin_users
+    function isAdminUser() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
+    }
+    
+    // Helper function to check if user is super admin
+    function isSuperAdmin() {
+      return isAdminUser() && getAdminData().role == 'super_admin';
+    }
+    
+    // Helper function to check if user is admin or higher
+    function isAdmin() {
+      return isAdminUser() && getAdminData().role in ['super_admin', 'admin'];
+    }
+    
+    // Helper function to check if user is moderator or higher
+    function isModerator() {
+      return isAdminUser() && getAdminData().role in ['super_admin', 'admin', 'moderator'];
+    }
+
+    // ========================================
+    // ADMIN USERS COLLECTION (Separate from agents)
+    // ========================================
+    match /admin_users/{adminId} {
+      // Only super_admin can read all admin users
+      allow read: if isSuperAdmin();
+      
+      // Users can read their own admin document
+      allow read: if isAuthenticated() && request.auth.uid == adminId;
+      
+      // Only super_admin can create/update/delete admin users
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // SETTINGS COLLECTION
+    // ========================================
+    match /settings/{document=**} {
+      // Only super_admin can read/write settings
+      allow read: if isSuperAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // USERS COLLECTION (For Agents Only - No Admin Data)
+    // CRITICAL: Super Admin never appears in approval list
+    // ========================================
+    match /users/{userId} {
+      // Users can read their own document
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      
+      // Admins can read all agent/user documents
+      allow read: if isAdmin();
+      
+      // Users can update their own non-sensitive fields
+      allow update: if isAuthenticated() 
+                    && request.auth.uid == userId
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentCompleted', 'registrationStatus', 'status']);
+      
+      // Admins can update user documents (including status, etc.)
+      allow update: if isAdmin();
+      
+      // CRITICAL: Agents can create their own documents during registration
+      // BUT prevent admin users from creating documents in users collection
+      // This ensures Super Admin never appears in agent approval list
+      allow create: if isAuthenticated() 
+                    && !exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
+      
+      // Documents subcollection (user-uploaded documents)
+      match /documents/{documentId} {
+        allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+        allow write: if isAuthenticated() && request.auth.uid == userId;
+        allow update: if isAdmin(); // Admins can approve/reject documents
+      }
+    }
+
+    // ========================================
+    // AGENT PAYMENTS COLLECTION
+    // ========================================
+    match /agent_payments/{paymentId} {
+      // Users can read their own payment records
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Admins can read all payment records
+      allow read: if isAdmin();
+      
+      // Only system/cloud functions can create payment records
+      allow create: if isAuthenticated();
+      
+      // No updates or deletes allowed (immutable records)
+      allow update, delete: if false;
+    }
+
+    // ========================================
+    // TRANSACTIONS COLLECTION
+    // ========================================
+    match /transactions/{transactionId} {
+      // Users can read their own transactions
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Admins can read all transactions
+      allow read: if isAdmin();
+      
+      // Only system/cloud functions can create transaction records
+      allow create: if isAuthenticated();
+      
+      // No updates or deletes allowed (immutable audit trail)
+      allow update, delete: if false;
+    }
+
+    // ========================================
+    // WALLET TRANSACTIONS COLLECTION
+    // ========================================
+    match /walletTransactions/{transactionId} {
+      // Users can read their own wallet transactions
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Admins can read all wallet transactions
+      allow read: if isAdmin();
+      
+      // Admins can create wallet transactions (for credits/debits)
+      allow create: if isAdmin();
+      
+      // No updates or deletes allowed (immutable)
+      allow update, delete: if false;
+    }
+
+    // ========================================
+    // SERVICE APPLICATIONS COLLECTION
+    // ========================================
+    match /serviceApplications/{applicationId} {
+      // Users can read their own applications
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Users can create their own applications
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      
+      // Admins can read all applications
+      allow read: if isAdmin();
+      
+      // Admins can update applications (status, review, etc.)
+      allow update: if isAdmin();
+      
+      // No deletes
+      allow delete: if false;
+    }
+COLLECTION
+    // ========================================
+    match /categories/{categoryId} {
+      // Everyone can read categories
+      allow read: if true;
+      
+      // Only admins can write categories
+      allow write: if isAdmin();
+    }
+
+    // ========================================
+    // SERVICE CATEGORIES COLLECTION
+    // ========================================
+    match /serviceCategories/{categoryId} {
+      // Everyone can read service categories
+      allow read: if true;
+      
+      // Only super_admin can write service categories
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // SERVICES COLLECTION
+    // ========================================
+    match /services/{serviceId} {
+      // Everysuper_admin can manage banners
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // SETTINGS COLLECTION
+    // ========================================
+    match /settings/{document=**} {
+      // Only super_admin can read/write settings
+      allow read: if isSuperAdmin();
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Admins can read all applications
+      allow read: if isAdmin();
+      
+      // Users can create their own applications
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      
+      // Users can update their own applications (within limits)
+      allow update: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      
+      // Admins can update any application
+      allow update: if isAdmin();
+    }
+
+    // ========================================
+    // SERVICE APPLICATIONS COLLECTION
+    // ========================================
+    match /serviceApplications/{applicationId} {
+      // Users can read their own applications
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Admins can read all applications
+      allow read: if isAdmin();
+      
+      // Users can create their own applications
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      
+      // Admins can update applications
+      allow update: if isAdmin();
+    }
+
+    // ========================================
+    // SERVICE_APPLICATIONS COLLECTION (Alternative naming)
+    // ========================================
+      // Users can create their own applications
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      
+      // Admins can update applications
+      allow update: if isAdmin();
+    }
+
+    // ========================================
+    // DOCUMENT REQUIREMENTS COLLECTION
+    // ========================================
+    match /document_requirements/{docId} {
+      // Everyone can read document requirements
+      allow read: if true;
+      
+      // Only super_admin can write document requirements
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // DOCUMENT REQUIREMENTS (Alternative naming)
+    // ========================================
+    match /documentRequirements/{docId} {
+      // Everyone can read document requirements
+      allow read: if true;
+      
+      // Only super_admin can write document requirements
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // SERVICE DOCUMENT FIELDS COLLECTION
+    // ========================================
+    match /service_document_fields/{fieldId} {
+      // Everyone can read service document fields
+      allow read: if true;
+      
+      // Only super_admin can write service document fields
+      allow write: if isSuper
+      // Only admins can write services
+      allow write: if isAdmin();
+    }
+
+    // ========================================
+    // BANNERS COLLECTION
+    // ========================================
+    match /banners/{bannerId} {
+      // Everyone can read banners
+      allow read: if true;
+      
+      // Only admins can manage banners
+      allow write: if isAdmin();
+    }
+
+    // ========================================
+    // DOCUMENT REQUIREMENTS COLLECTION
+    // ========================================
+    match /documentRequirements/{requirementId} {
+      // Everyone can read document requirements
+      allow read: if true;
+      
+      // Only super_admin can modify document requirements
+      allow write: if isSuperAdmin();
+    }
+
+    // ========================================
+    // TERMS & POLICIES COLLECTION
+    // ========================================
+    match /terms/{termId} {
+      // Everyone can read terms
+      allow read: if true;
+      
+      // Only admins can update terms
+      allow write: if isAdmin();
+    }
+
+    // ========================================
+    // NOTIFICATIONS COLLECTION
+    // ========================================
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Admins can create notifications
+      allow create: if isAdmin();
+      
+      // Users can update their own notifications (mark as read)
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // No deletes
+      allow delete: if false;
+    }
+
+    // ========================================
+    // DEFAULT DENY ALL
+    // ========================================
+    // Any collection not explicitly defined above is denied
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
