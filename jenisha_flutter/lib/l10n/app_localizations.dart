@@ -156,9 +156,16 @@ class AppLocalizations {
     'earnings_report': 'Earnings Report',
     'view_all': 'View All',
     'total_commission_earned': 'Total Commission Earned',
+    'today_earnings': "Today's Earnings",
     'this_month': 'This Month',
+    'total_referred_users': 'Total Referred Users',
     'avg_per_application': 'Avg per Application',
     'transaction_history': 'Transaction History',
+    'commission_from': 'Commission',
+    'customer_label': 'Customer',
+    'added_by_admin': 'Added by Admin',
+    'wallet_recharge': 'Wallet Recharge',
+    'service_payment_label': 'Service Payment',
 
     // Refer
     'refer_and_earn': 'Refer & Earn',
@@ -488,9 +495,16 @@ class AppLocalizations {
     'earnings_report': 'कमाई अहवाल',
     'view_all': 'सर्व पहा',
     'total_commission_earned': 'एकूण कमाई',
+    'today_earnings': 'आजची कमाई',
     'this_month': 'या महिन्यात',
+    'total_referred_users': 'एकूण रेफर केलेले',
     'avg_per_application': 'प्रति अर्ज सरासरी',
     'transaction_history': 'व्यवहाराचा इतिहास',
+    'commission_from': 'कमिशन',
+    'customer_label': 'ग्राहक',
+    'added_by_admin': 'प्रशासकाने जोडले',
+    'wallet_recharge': 'वॉलेट रिचार्ज',
+    'service_payment_label': 'सेवा पेमेंट',
 
     // Refer
     'refer_and_earn': 'रेफर करा आणि कमवा',

@@ -5,8 +5,6 @@ import {
   Users,
   UserCheck,
   FolderTree,
-  FileText,
-  FileCheck,
   Award,
   Wallet,
   Gift,
@@ -21,7 +19,8 @@ import {
   Shield,
   UserCog,
   Megaphone,
-  CalendarDays
+  CalendarDays,
+  TrendingUp
 } from 'lucide-react';
 import { authService } from '@/services/authService';
 
@@ -33,18 +32,17 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard', roles: ['super_admin', 'admin', 'moderator'] },
   { icon: Users, label: 'Agent Management', path: '/agents', roles: ['super_admin'] },
   { icon: UserCog, label: 'Admin Management', path: '/admin-management', roles: ['super_admin'] },
-  { icon: UserCheck, label: 'Agent Approval', path: '/agent-approval', roles: ['super_admin', 'admin'] },
+  { icon: UserCheck, label: 'Agent Approval', path: '/agent-approval', roles: ['super_admin'] },
   { icon: FolderTree, label: 'Services & Categories', path: '/services', roles: ['super_admin'] },
   { icon: Image, label: 'Banner Management', path: '/banners', roles: ['super_admin'] },
   { icon: Megaphone, label: 'Announcement Management', path: '/announcements', roles: ['super_admin'] },
-  { icon: FileText, label: 'Document Requirements', path: '/document-requirements', roles: ['super_admin'] },
-  { icon: FileCheck, label: 'Customer Verification', path: '/customer-verification', roles: ['super_admin', 'admin'] },
   { icon: Award, label: 'Certificate Generation', path: '/certificate-generation', roles: ['super_admin', 'admin'] },
   { icon: Wallet, label: 'Wallet Management', path: '/wallet', roles: ['super_admin'] },
+  { icon: TrendingUp, label: 'Commission Settings', path: '/commission-settings', roles: ['super_admin'] },
   { icon: Settings, label: 'Registration Settings', path: '/registration-settings', roles: ['super_admin'] },
   { icon: Gift, label: 'Refer & Earn', path: '/refer-earn', roles: ['super_admin'] },
   { icon: FileSignature, label: 'Terms & Policies', path: '/terms', roles: ['super_admin'] },
-  { icon: CalendarDays, label: 'Appointment Management', path: '/appointments', roles: ['super_admin', 'admin'] },
+  { icon: CalendarDays, label: 'Appointment Management', path: '/appointments', roles: ['super_admin'] },
 ];
 
 export default function MainLayout({ children }: MainLayoutProps) {
@@ -149,9 +147,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
           <nav className="space-y-1 px-3">
             {navItems
               .filter((item) => {
-                // Filter nav items based on user role
                 if (!currentUser) return false;
-                console.log('Sidebar currentUser:', currentUser);
                 return item.roles.includes(currentUser.role);
               })
               .map((item) => {

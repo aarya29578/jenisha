@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, FolderTree, FileText, Briefcase, Home, Users, Settings, ShoppingCart, CreditCard, Package, Truck, Phone, Mail, Calendar, Clock, Star, Heart, Shield, Award, Gift, Zap, Activity, TrendingUp, DollarSign, File, Folder, Database, Server, Globe, Cloud, Key, Lock, Download, FileDown, X } from 'lucide-react';
 import { categoryService, serviceManagementService, ServiceCategory, Service } from '../../../services/categoryService';
+import CategoryDetail from './CategoryDetail';
+import { authService } from '@/services/authService';
 
 // Icon options for category selection
 const iconOptions = [
@@ -44,9 +46,18 @@ const getIconByName = (iconName?: string) => {
 };
 
 export default function ServiceManagement() {
-  const [activeTab, setActiveTab] = useState<'categories' | 'services'>('categories');
+  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | null>(null);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [services, setServices] = useState<(Service & { categoryId: string; categoryName: string })[]>([]);
+
+  const currentUser = authService.getCurrentUser();
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const allowedCategoryIds = currentUser?.allowedCategories ?? [];
+
+  // Filtered categories visible to this admin
+  const visibleCategories = isSuperAdmin
+    ? categories
+    : categories.filter((c) => allowedCategoryIds.includes(c.id));
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -379,6 +390,17 @@ export default function ServiceManagement() {
 
   return (
     <div className="space-y-6">
+      {/* Delegate to CategoryDetail when a category is selected */}
+      {selectedCategory && (
+        <CategoryDetail
+          category={selectedCategory}
+          onBack={() => setSelectedCategory(null)}
+        />
+      )}
+
+      {/* Main view – only shown when no category is selected */}
+      {!selectedCategory && (
+      <div className="space-y-6">
       {/* Page Header */}
       <div>
         <h1 className="text-2xl text-gray-100 mb-2">Service & Category Management</h1>
@@ -398,37 +420,7 @@ export default function ServiceManagement() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-[#111318]">
-        <div className="flex gap-1">
-          <button
-            onClick={() => setActiveTab('categories')}
-            className={`
-              px-6 py-3 text-sm transition-colors border-b-2 -mb-0.5
-              ${activeTab === 'categories'
-                ? 'border-[#243BFF] text-[#243BFF]'
-                : 'border-transparent text-gray-400 hover:text-gray-100'
-              }
-            `}
-          >
-            Categories
-          </button>
-          <button
-            onClick={() => setActiveTab('services')}
-            className={`
-              px-6 py-3 text-sm transition-colors border-b-2 -mb-0.5
-              ${activeTab === 'services'
-                ? 'border-[#243BFF] text-[#243BFF]'
-                : 'border-transparent text-gray-400 hover:text-gray-100'
-              }
-            `}
-          >
-            Services
-          </button>
-        </div>
-      </div>
-
-      {loading && activeTab === 'categories' && (
+      {loading && (
         <div className="text-center py-8">
           <div className="inline-block">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#4C4CFF]"></div>
@@ -436,8 +428,7 @@ export default function ServiceManagement() {
         </div>
       )}
 
-      {/* Categories Tab */}
-      {activeTab === 'categories' && !loading && (
+      {!loading && (
         <div className="space-y-4">
           <div className="flex justify-end">
             <button
@@ -450,10 +441,14 @@ export default function ServiceManagement() {
           </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {categories.map((category) => {
+            {visibleCategories.map((category) => {
               const IconComponent = getIconByName(category.icon);
               return (
-                <div key={category.id} className="bg-[#071018] border border-[#111318] rounded p-5">
+                <div
+                  key={category.id}
+                  onClick={() => setSelectedCategory(category)}
+                  className="bg-[#071018] border border-[#111318] rounded p-5 cursor-pointer hover:border-[#243BFF] transition-colors"
+                >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-2">
                       {category.customLogoUrl ? (
@@ -469,7 +464,8 @@ export default function ServiceManagement() {
                     </div>
                     <div className="flex gap-1">
                       <button 
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setEditCategoryData({ id: category.id, name: category.name, icon: category.icon, customLogoUrl: category.customLogoUrl });
                           setShowEditCategory(true);
                         }}
@@ -478,7 +474,10 @@ export default function ServiceManagement() {
                         <Edit className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDeleteCategory(category.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteCategory(category.id);
+                        }}
                         className="p-1.5 text-[#F44336] hover:bg-[#2a0b0b] rounded transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -504,7 +503,7 @@ export default function ServiceManagement() {
             })}
           </div>
 
-          {categories.length === 0 && (
+          {visibleCategories.length === 0 && !loading && (
             <div className="text-center py-8 bg-[#071018] border border-[#111318] rounded">
               <p className="text-gray-400">No categories yet. Create one to get started!</p>
             </div>
@@ -786,8 +785,8 @@ export default function ServiceManagement() {
         </div>
       )}
 
-      {/* Services Tab */}
-      {activeTab === 'services' && (
+      {/* Services tab removed — services are managed inside each category */}
+      {false && (
         <div className="space-y-4">
           <div className="flex justify-end">
             <button
@@ -1350,6 +1349,8 @@ export default function ServiceManagement() {
             </div>
           )}
         </div>
+      )}
+      </div>
       )}
     </div>
   );

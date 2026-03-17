@@ -9,10 +9,10 @@ import AdminManagement from '@/app/components/pages/AdminManagement';
 import ServiceManagement from '@/app/components/pages/ServiceManagement';
 import BannerManagement from '@/app/components/pages/BannerManagement';
 import AnnouncementManagement from '@/app/components/pages/AnnouncementManagement';
-import DocumentRequirements from '@/app/components/pages/DocumentRequirements_Dynamic';
-import CustomerVerification from '@/app/components/pages/CustomerVerification';
+import ApplicationDetail from '@/app/components/pages/ApplicationDetail';
 import CertificateGeneration from '@/app/components/pages/CertificateGeneration';
 import WalletManagement from '@/app/components/pages/WalletManagement';
+import CommissionSettings from '@/app/components/pages/CommissionSettings';
 import ReferEarn from '@/app/components/pages/ReferEarn';
 import TermsManagement from '@/app/components/pages/TermsManagement';
 import AdminProfile from '@/app/components/pages/AdminProfile';
@@ -134,15 +134,13 @@ function App() {
                     </RoleGuard>
                   } />
                   
-                  <Route path="/document-requirements" element={
-                    <RoleGuard allowedRoles={['super_admin']}>
-                      <DocumentRequirements />
-                    </RoleGuard>
-                  } />
+                  <Route path="/document-requirements" element={<Navigate to="/services" replace />} />
                   
-                  <Route path="/customer-verification" element={
+                  <Route path="/customer-verification" element={<Navigate to="/dashboard" replace />} />
+
+                  <Route path="/application/:applicationId" element={
                     <RoleGuard allowedRoles={['super_admin', 'admin']}>
-                      <CustomerVerification />
+                      <ApplicationDetail />
                     </RoleGuard>
                   } />
                   
@@ -155,6 +153,12 @@ function App() {
                   <Route path="/wallet" element={
                     <RoleGuard allowedRoles={['super_admin']}>
                       <WalletManagement />
+                    </RoleGuard>
+                  } />
+                  
+                  <Route path="/commission-settings" element={
+                    <RoleGuard allowedRoles={['super_admin']}>
+                      <CommissionSettings />
                     </RoleGuard>
                   } />
                   

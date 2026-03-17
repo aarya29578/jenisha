@@ -31,9 +31,21 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow create: if isAuthenticated();
 
-      // Users can update their own doc; admins can update any user (approve/reject)
-      allow update: if isAuthenticated() &&
-        (request.auth.uid == userId || isAdmin());
+      // Users can update their own doc but cannot increase their own walletBalance.
+      // Admins can update any user (approve/reject/recharge).
+      // Commission path: any authenticated user may increment walletBalance on another
+      // agent's doc, but ONLY the walletBalance and lastCommissionAt fields may change
+      // and the balance must go up (not down).
+      allow update: if isAdmin() ||
+        (isAuthenticated() && request.auth.uid == userId &&
+          (!('walletBalance' in request.resource.data) ||
+           !('walletBalance' in resource.data) ||
+           request.resource.data.walletBalance <= resource.data.walletBalance)) ||
+        (isAuthenticated() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['walletBalance', 'lastCommissionAt']) &&
+          'walletBalance' in resource.data &&
+          request.resource.data.walletBalance > resource.data.walletBalance);
 
       allow delete: if isAdmin();
 
@@ -100,7 +112,9 @@ service cloud.firestore {
 
     // ================= SETTINGS =================
     match /settings/{doc} {
-      allow read: if isAdmin();
+      // Authenticated app users need to be able to read public settings
+      // (e.g., commissionPercentage is read by Flutter for display).
+      allow read: if isAuthenticated();
       allow write: if isSuperAdmin();
     }
 
@@ -118,6 +132,19 @@ service cloud.firestore {
     match /walletTransactions/{doc} {
       allow read: if isAuthenticated();
       allow create: if isAdmin();
+    }
+
+    // ================= WALLET TRANSACTIONS (snake_case) =================
+    match /wallet_transactions/{doc} {
+      // Admins see all; authenticated users see their own payment or commission records
+      allow read: if isAdmin() ||
+        (isAuthenticated() &&
+          (resource.data.userId == request.auth.uid ||
+           resource.data.agentId == request.auth.uid));
+      // Cloud Function (Admin SDK) creates commission records; app creates payment records
+      allow create: if isAuthenticated();
+      // Only admins may modify or delete transaction records
+      allow update, delete: if isAdmin();
     }
 
     // ================= APPOINTMENT SERVICES =================

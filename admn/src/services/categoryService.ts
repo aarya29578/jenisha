@@ -75,7 +75,7 @@ export interface DocumentRequirement {
 export interface DynamicField {
   fieldId: string;
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'image' | 'pdf';
+  fieldType: 'text' | 'number' | 'date' | 'image' | 'pdf' | 'appointment';
   isRequired: boolean;
   placeholder?: string;
   displayOrder: number;
@@ -646,6 +646,20 @@ export const serviceManagementService = {
     }
   },
 
+  // Permanently delete a service and its document-field configuration
+  deleteServicePermanently: async (serviceId: string): Promise<void> => {
+    try {
+      await Promise.all([
+        deleteDoc(doc(firestore, 'services', serviceId)),
+        deleteDoc(doc(firestore, 'service_document_fields', serviceId)),
+      ]);
+      console.log(`✅ Service ${serviceId} permanently deleted`);
+    } catch (error) {
+      console.error('❌ Error permanently deleting service:', error);
+      throw error;
+    }
+  },
+
   // Subscribe to services for a specific category
   subscribeToServicesForCategory: (
     categoryId: string,
@@ -1061,12 +1075,21 @@ export const dynamicFieldsService = {
     try {
       console.log(`📝 Saving document fields for service ${serviceId}...`);
       
-      // Generate unique fieldIds for new fields
-      const fieldsWithIds: DynamicField[] = fields.map((field, index) => ({
-        ...field,
-        fieldId: `field_${Date.now()}_${index}`,
-        displayOrder: field.displayOrder || index,
-      }));
+      // Generate unique fieldIds for new fields (no undefined values — Firestore rejects them)
+      const fieldsWithIds: DynamicField[] = fields.map((field, index) => {
+        const cleanField: DynamicField = {
+          fieldId: `field_${Date.now()}_${index}`,
+          fieldName: field.fieldName,
+          fieldType: field.fieldType,
+          isRequired: field.isRequired,
+          placeholder: field.placeholder || '',
+          displayOrder: field.displayOrder ?? index,
+        };
+        if (field.maxSizeKB !== undefined) {
+          cleanField.maxSizeKB = field.maxSizeKB;
+        }
+        return cleanField;
+      });
 
       // Transform to match the required structure: {id, name, type, required, placeholder}
       const transformedFields = fieldsWithIds.map(field => ({

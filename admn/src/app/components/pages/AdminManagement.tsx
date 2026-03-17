@@ -39,7 +39,7 @@ interface AdminUser {
   role: 'super_admin' | 'admin' | 'moderator';
   createdAt: Timestamp;
   createdBy: string;
-  allowedServices?: string[];
+  allowedCategories?: string[];
 }
 
 export default function AdminManagement() {
@@ -65,26 +65,26 @@ export default function AdminManagement() {
   // Give Access modal state
   const [showAccessModal, setShowAccessModal] = useState(false);
   const [accessTargetAdmin, setAccessTargetAdmin] = useState<AdminUser | null>(null);
-  const [allServices, setAllServices] = useState<{ id: string; name: string }[]>([]);
-  const [selectedServices, setSelectedServices] = useState<string[]>([]);
-  const [loadingServices, setLoadingServices] = useState(false);
+  const [allCategories, setAllCategories] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
 
   const openAccessModal = async (admin: AdminUser) => {
     setAccessTargetAdmin(admin);
     setShowAccessModal(true);
-    setLoadingServices(true);
+    setLoadingCategories(true);
     try {
-      const snap = await getDocs(collection(db, 'services'));
+      const snap = await getDocs(collection(db, 'categories'));
       const items = snap.docs
-        .map((d) => ({ id: d.id, name: (d.data().name as string) || d.id }))
+        .map((d) => ({ id: d.id, name: (d.data().name_en || d.data().name || d.id) as string }))
         .sort((a, b) => a.name.localeCompare(b.name));
-      setAllServices(items);
-      setSelectedServices(Array.isArray(admin.allowedServices) ? admin.allowedServices : []);
+      setAllCategories(items);
+      setSelectedCategories(Array.isArray(admin.allowedCategories) ? admin.allowedCategories : []);
     } catch (e) {
-      console.error('Error fetching services:', e);
+      console.error('Error fetching categories:', e);
     } finally {
-      setLoadingServices(false);
+      setLoadingCategories(false);
     }
   };
 
@@ -93,9 +93,9 @@ export default function AdminManagement() {
     setSavingAccess(true);
     try {
       await updateDoc(doc(db, 'admin_users', accessTargetAdmin.id), {
-        allowedServices: selectedServices,
+        allowedCategories: selectedCategories,
       });
-      alert(`Service access updated for ${accessTargetAdmin.name}`);
+      alert(`Category access updated for ${accessTargetAdmin.name}`);
       setShowAccessModal(false);
     } catch (e) {
       console.error('Error saving access:', e);
@@ -126,7 +126,7 @@ export default function AdminManagement() {
             role: data.role || 'admin',
             createdAt: data.createdAt,
             createdBy: data.createdBy || '',
-            allowedServices: Array.isArray(data.allowedServices) ? data.allowedServices : [],
+            allowedCategories: Array.isArray(data.allowedCategories) ? data.allowedCategories : [],
           });
         });
         setAdmins(adminList);
@@ -619,12 +619,12 @@ export default function AdminManagement() {
       {showAccessModal && accessTargetAdmin && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-[#0f1720] border border-[#1f2937] rounded-lg w-full max-w-md p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-100 mb-1">Give Service Access</h2>
+            <h2 className="text-lg font-semibold text-gray-100 mb-1">Give Category Access</h2>
             <p className="text-sm text-gray-400 mb-4">
-              Select services for <strong className="text-gray-200">{accessTargetAdmin.name}</strong>
+              Select categories for <strong className="text-gray-200">{accessTargetAdmin.name}</strong>
             </p>
 
-            {loadingServices ? (
+            {loadingCategories ? (
               <div className="flex items-center justify-center py-8">
                 <div className="w-8 h-8 border-4 border-[#243BFF]/30 border-t-[#243BFF] rounded-full animate-spin"></div>
               </div>
@@ -635,9 +635,9 @@ export default function AdminManagement() {
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={allServices.length > 0 && selectedServices.length === allServices.length}
+                      checked={allCategories.length > 0 && selectedCategories.length === allCategories.length}
                       onChange={(e) =>
-                        setSelectedServices(e.target.checked ? allServices.map((s) => s.id) : [])
+                        setSelectedCategories(e.target.checked ? allCategories.map((c) => c.id) : [])
                       }
                       className="w-4 h-4 accent-[#243BFF]"
                     />
@@ -645,29 +645,29 @@ export default function AdminManagement() {
                   </label>
                 </div>
 
-                {/* Service list */}
+                {/* Category list */}
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {allServices.length === 0 ? (
-                    <p className="text-gray-400 text-sm">No services found.</p>
+                  {allCategories.length === 0 ? (
+                    <p className="text-gray-400 text-sm">No categories found.</p>
                   ) : (
-                    allServices.map((service) => (
+                    allCategories.map((category) => (
                       <label
-                        key={service.id}
+                        key={category.id}
                         className="flex items-center gap-2 cursor-pointer hover:bg-[#1a2332] px-2 py-1 rounded"
                       >
                         <input
                           type="checkbox"
-                          checked={selectedServices.includes(service.id)}
+                          checked={selectedCategories.includes(category.id)}
                           onChange={(e) =>
-                            setSelectedServices((prev) =>
+                            setSelectedCategories((prev) =>
                               e.target.checked
-                                ? [...prev, service.id]
-                                : prev.filter((id) => id !== service.id)
+                                ? [...prev, category.id]
+                                : prev.filter((id) => id !== category.id)
                             )
                           }
                           className="w-4 h-4 accent-[#243BFF]"
                         />
-                        <span className="text-sm text-gray-200">{service.name}</span>
+                        <span className="text-sm text-gray-200">{category.name}</span>
                       </label>
                     ))
                   )}
@@ -678,7 +678,7 @@ export default function AdminManagement() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleSaveAccess}
-                disabled={savingAccess || loadingServices}
+                disabled={savingAccess || loadingCategories}
                 className="flex items-center gap-2 px-5 py-2 bg-[#243BFF] text-white rounded-lg hover:bg-[#1e32cc] transition-colors disabled:opacity-50"
               >
                 {savingAccess ? (

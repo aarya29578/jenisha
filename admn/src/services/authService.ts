@@ -44,7 +44,7 @@ export interface AdminUser {
   email: string;
   role: 'super_admin' | 'admin' | 'moderator';
   createdAt: any;
-  allowedServices?: string[];
+  allowedCategories?: string[];
 }
 
 class AuthService {
@@ -162,7 +162,7 @@ class AuthService {
         email: userData.email || email,
         role: role as 'super_admin' | 'admin' | 'moderator',
         createdAt: userData.createdAt,
-        allowedServices: Array.isArray(userData.allowedServices) ? userData.allowedServices : [],
+        allowedCategories: Array.isArray(userData.allowedCategories) ? userData.allowedCategories : [],
       };
 
       console.log('✅ [AUTH] Login successful');
@@ -255,7 +255,7 @@ class AuthService {
                 email: userData.email || firebaseUser.email || '',
                 role: role as 'super_admin' | 'admin' | 'moderator',
                 createdAt: userData.createdAt,
-                allowedServices: Array.isArray(userData.allowedServices) ? userData.allowedServices : [],
+                allowedCategories: Array.isArray(userData.allowedCategories) ? userData.allowedCategories : [],
               };
               callback(this.currentUser);
               return;

@@ -1,184 +1,116 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:marquee/marquee.dart';
 
-/// Real-time announcement banner driven by Firestore.
-///
-/// Behaviour:
-/// - Queries announcements where isActive == true (no orderBy → no index needed).
-/// - During stream loading, renders from last-known cached values → no flicker.
-/// - Disappears only when the admin sets every document's isActive to false
-///   AND all cached state is cleared.
-class AnnouncementBanner extends StatefulWidget {
+class AnnouncementBanner extends StatelessWidget {
   const AnnouncementBanner({Key? key}) : super(key: key);
-
-  @override
-  State<AnnouncementBanner> createState() => _AnnouncementBannerState();
-}
-
-class _AnnouncementBannerState extends State<AnnouncementBanner> {
-  // Last-known active announcement — preserved across stream reloads
-  String? _activeTitle;
-  String? _activeUrl;
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
-      // No orderBy, no limit — avoids composite index requirement.
-      // Admin panel guarantees at most one active document at a time.
       stream: FirebaseFirestore.instance
           .collection('announcements')
           .where('isActive', isEqualTo: true)
           .snapshots(),
       builder: (context, snapshot) {
-        // ── Update cache when new data arrives ──────────────────────────────
-        if (snapshot.hasData) {
-          if (snapshot.data!.docs.isNotEmpty) {
-            final data =
-                snapshot.data!.docs.first.data() as Map<String, dynamic>;
-            final newTitle = (data['title'] as String? ?? '').trim();
-            final newUrl = (data['url'] as String? ?? '').trim();
-            // Only call setState if values actually changed
-            if (newTitle != _activeTitle || newUrl != _activeUrl) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() {
-                    _activeTitle = newTitle.isEmpty ? null : newTitle;
-                    _activeUrl = newUrl;
-                  });
-                }
-              });
-            }
-          } else {
-            // Firestore confirmed no active document → clear cache
-            if (_activeTitle != null) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted)
-                  setState(() {
-                    _activeTitle = null;
-                    _activeUrl = null;
-                  });
-              });
-            }
-          }
+        if (snapshot.hasError) {
+          // ignore: avoid_print
+          print('⚠️ AnnouncementBanner Firestore error: ${snapshot.error}');
+          return const SizedBox.shrink();
         }
 
-        // ── Render decision ─────────────────────────────────────────────────
-        // Hide only when we have no cached title (either never loaded, or
-        // admin explicitly deactivated all announcements).
-        if (_activeTitle == null) return const SizedBox.shrink();
+        final docs = snapshot.data?.docs ?? [];
 
-        return _AnnouncementMarquee(
-          text: _activeTitle!,
-          onTap: (_activeUrl != null && _activeUrl!.isNotEmpty)
+        // ignore: avoid_print
+        print('FINAL DOC COUNT: ${docs.length}');
+
+        // Sort newest-first in memory (no composite index needed).
+        final sortedDocs = List<QueryDocumentSnapshot>.from(docs);
+        sortedDocs.sort((a, b) {
+          final aTs = (a.data() as Map<String, dynamic>)['createdAt'];
+          final bTs = (b.data() as Map<String, dynamic>)['createdAt'];
+          if (aTs == null && bTs == null) return 0;
+          if (aTs == null) return 1;
+          if (bTs == null) return -1;
+          try {
+            return (bTs as dynamic).compareTo(aTs as dynamic) as int;
+          } catch (_) {
+            return 0;
+          }
+        });
+
+        // Collect ALL titles — no limit, no docs.first, no docs[0].
+        List<String> titles = sortedDocs
+            .map((e) => ((e.data() as Map<String, dynamic>)['title'] ?? '')
+                .toString()
+                .trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+
+        // ignore: avoid_print
+        print('TITLES: $titles');
+
+        if (titles.isEmpty) return const SizedBox.shrink();
+
+        // Combine all announcements into one scrolling string.
+        // Duplicate for seamless continuous looping with multiple items.
+        String combinedText = titles.join('   •   ');
+        if (titles.length > 1) {
+          combinedText = combinedText + '   •   ' + combinedText;
+        }
+
+        // First non-empty URL is the tap target for the whole bar.
+        final tapUrl = sortedDocs
+            .map((d) =>
+                ((d.data() as Map<String, dynamic>)['url'] as String? ?? '')
+                    .trim())
+            .firstWhere((u) => u.isNotEmpty, orElse: () => '');
+
+        return GestureDetector(
+          onTap: tapUrl.isNotEmpty
               ? () async {
-                  final uri = Uri.tryParse(_activeUrl!);
+                  final uri = Uri.tryParse(tapUrl);
                   if (uri != null && await canLaunchUrl(uri)) {
                     await launchUrl(uri, mode: LaunchMode.externalApplication);
                   }
                 }
               : null,
+          child: Container(
+            height: 40,
+            width: double.infinity,
+            color: const Color(0xFFFFF9C4), // light yellow
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                const Icon(Icons.campaign, color: Color(0xFF4A3000), size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Marquee(
+                    text: combinedText,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF4A3000),
+                    ),
+                    // Multiple items scroll faster; single item is slower
+                    velocity: titles.length == 1 ? 30.0 : 50.0,
+                    // Minimal gap between loops for multiple; wider for single
+                    blankSpace: titles.length == 1 ? 50.0 : 10.0,
+                    // Pause only for a single announcement
+                    pauseAfterRound: titles.length == 1
+                        ? const Duration(seconds: 2)
+                        : Duration.zero,
+                    startPadding: 10.0,
+                    accelerationDuration: const Duration(milliseconds: 500),
+                    decelerationDuration: const Duration(milliseconds: 500),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Internal marquee widget — no external package required
-// ---------------------------------------------------------------------------
-class _AnnouncementMarquee extends StatefulWidget {
-  final String text;
-  final VoidCallback? onTap;
-
-  const _AnnouncementMarquee({required this.text, this.onTap});
-
-  @override
-  State<_AnnouncementMarquee> createState() => _AnnouncementMarqueeState();
-}
-
-class _AnnouncementMarqueeState extends State<_AnnouncementMarquee>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  double _textWidth = 0;
-  bool _started = false;
-
-  static const _textStyle = TextStyle(
-    fontSize: 14,
-    fontWeight: FontWeight.bold,
-    color: Color(0xFF4A3000),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _startAnimation());
-  }
-
-  void _startAnimation() {
-    if (!mounted) return;
-
-    // Measure text width using TextPainter
-    final tp = TextPainter(
-      text: TextSpan(text: widget.text, style: _textStyle),
-      maxLines: 1,
-      textDirection: TextDirection.ltr,
-    )..layout();
-    _textWidth = tp.width;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    // total pixels the text travels: enters from right edge, exits at left edge
-    const double pixelsPerSecond = 70.0;
-    final totalDistance = screenWidth + _textWidth;
-    final duration = Duration(
-      milliseconds: (totalDistance / pixelsPerSecond * 1000).round(),
-    );
-
-    _controller.duration = duration;
-    _controller.repeat();
-    if (mounted) setState(() => _started = true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    return GestureDetector(
-      onTap: widget.onTap,
-      child: Container(
-        width: double.infinity,
-        color: const Color(0xFFFFF9C4), // light yellow
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: ClipRect(
-          child: _started
-              ? AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) {
-                    // Slide from screenWidth (off-screen right) to -_textWidth (off-screen left)
-                    final dx = screenWidth -
-                        _controller.value * (screenWidth + _textWidth);
-                    return Transform.translate(
-                      offset: Offset(dx, 0),
-                      child: child,
-                    );
-                  },
-                  child: Text(
-                    widget.text,
-                    style: _textStyle,
-                    maxLines: 1,
-                    softWrap: false,
-                  ),
-                )
-              : const SizedBox.shrink(),
-        ),
-      ),
     );
   }
 }

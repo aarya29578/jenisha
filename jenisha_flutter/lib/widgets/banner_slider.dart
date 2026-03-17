@@ -33,19 +33,27 @@ class _BannerSliderState extends State<BannerSlider> {
   @override
   void didUpdateWidget(covariant BannerSlider oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // If banner list changed, reset page controller and restart timer
+    // If banner list changed, clamp the page index and restart the timer.
+    // Do NOT dispose/recreate the controller here — calling dispose() while
+    // the PageView still holds a reference to it raises a
+    // "ScrollController disposed while still attached" error, which Flutter
+    // then mis-reports as "Duplicate GlobalKey detected in widget tree".
     if (oldWidget.banners.length != widget.banners.length ||
         (oldWidget.banners.isNotEmpty &&
             widget.banners.isNotEmpty &&
             !ListEquality().equals(oldWidget.banners, widget.banners))) {
-      // Reset current page to 0 if out of range
       if (_currentPage >= widget.banners.length) {
         _currentPage = 0;
+        // Defer the jump so the PageView has already rebuilt with the new list.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _pageController.hasClients) {
+            _pageController.jumpToPage(_currentPage);
+          }
+        });
       }
-      _pageController.dispose();
-      _pageController = PageController(initialPage: _currentPage);
       _startAutoScroll();
-      setState(() {});
+      // No explicit setState here — Flutter always calls build() right after
+      // didUpdateWidget returns, so the updated _currentPage is picked up.
     }
   }
 
@@ -78,10 +86,10 @@ class _BannerSliderState extends State<BannerSlider> {
 
   Future<void> _handleBannerTap(Map<String, dynamic> banner) async {
     final linkUrl = banner['linkUrl'] as String?;
-    
+
     debugPrint('🔗 Banner tapped!');
     debugPrint('   linkUrl: $linkUrl');
-    
+
     if (linkUrl == null || linkUrl.isEmpty) {
       debugPrint('   ⚠️ No link URL provided, nothing to open');
       return;
@@ -96,7 +104,7 @@ class _BannerSliderState extends State<BannerSlider> {
     try {
       final url = Uri.parse(linkUrl);
       debugPrint('   📱 Attempting to launch: $url');
-      
+
       if (await canLaunchUrl(url)) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
         debugPrint('   ✅ URL launched successfully');

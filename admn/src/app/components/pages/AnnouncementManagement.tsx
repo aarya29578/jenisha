@@ -4,6 +4,7 @@ import {
   getFirestore,
   collection,
   addDoc,
+  updateDoc,
   deleteDoc,
   doc,
   getDoc,
@@ -12,9 +13,7 @@ import {
   query,
   orderBy,
   limit,
-  writeBatch,
   getDocs,
-  where,
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { initializeApp } from 'firebase/app';
@@ -119,8 +118,7 @@ export default function AnnouncementManagement() {
   // ── Real-time listener ─────────────────────────────────────────────────────
   // NOTE: The Flutter app queries:
   //   .where('isActive', '==', true)
-  //   .orderBy('createdAt', 'desc')
-  //   .limit(1)
+  //   .orderBy('createdAt', descending: true)
   // This requires a Firestore composite index:
   //   Collection : announcements
   //   Fields     : isActive ASC  +  createdAt DESC
@@ -144,9 +142,8 @@ export default function AnnouncementManagement() {
     return () => unsubscribe();
   }, []);
 
-  // ── Add announcement (fully atomic single writeBatch) ────────────────────
-  // Uses batch.set() with an auto-generated ref so deactivating others and
-  // writing the new document are committed in one atomic operation.
+  // ── Add announcement ──────────────────────────────────────────────────────
+  // Multiple announcements may be active simultaneously — no deactivation needed.
   const handleAdd = async () => {
     if (!title.trim()) {
       alert('Title is required.');
@@ -154,28 +151,12 @@ export default function AnnouncementManagement() {
     }
     try {
       setSaving(true);
-      const batch = writeBatch(firestore);
-
-      // If the new doc will be active, deactivate every currently-active doc first
-      if (isActive) {
-        const activeSnap = await getDocs(
-          query(collection(firestore, 'announcements'), where('isActive', '==', true))
-        );
-        activeSnap.docs.forEach((d) => {
-          batch.update(doc(firestore, 'announcements', d.id), { isActive: false });
-        });
-      }
-
-      // Set the new document using an auto-generated ref
-      const newRef = doc(collection(firestore, 'announcements'));
-      batch.set(newRef, {
+      await addDoc(collection(firestore, 'announcements'), {
         title: title.trim(),
         url: url.trim(),
         isActive,
         createdAt: serverTimestamp(),
       });
-
-      await batch.commit();
 
       // Reset form
       setTitle('');
@@ -190,30 +171,13 @@ export default function AnnouncementManagement() {
     }
   };
 
-  // ── Toggle active (fully atomic single writeBatch) ────────────────────────
-  // Both deactivating others AND activating the chosen doc happen in one commit.
+  // ── Toggle active ─────────────────────────────────────────────────────────
+  // Only updates the specific announcement — other documents are untouched.
   const handleToggle = async (item: Announcement) => {
     try {
-      const batch = writeBatch(firestore);
-
-      if (!item.isActive) {
-        // Activating: deactivate every other active doc in the same batch
-        const activeSnap = await getDocs(
-          query(collection(firestore, 'announcements'), where('isActive', '==', true))
-        );
-        activeSnap.docs.forEach((d) => {
-          if (d.id !== item.id) {
-            batch.update(doc(firestore, 'announcements', d.id), { isActive: false });
-          }
-        });
-      }
-
-      // Flip the chosen document's status
-      batch.update(doc(firestore, 'announcements', item.id), {
+      await updateDoc(doc(firestore, 'announcements', item.id), {
         isActive: !item.isActive,
       });
-
-      await batch.commit();
     } catch (err) {
       console.error('Error toggling announcement:', err);
       alert('Failed to update status.');
@@ -239,8 +203,8 @@ export default function AnnouncementManagement() {
         <div>
           <h2 className="text-2xl font-semibold text-gray-100">Announcement Management</h2>
           <p className="text-sm text-gray-400 mt-1">
-            Control the scrolling announcement banner shown on the app home screen.
-            Only one announcement can be active at a time.
+            Control the announcement banners shown on the app home screen.
+            Multiple announcements can be active and displayed simultaneously.
           </p>
         </div>
         <button
@@ -305,7 +269,7 @@ export default function AnnouncementManagement() {
               </button>
               <span className="text-sm text-gray-300">
                 {isActive
-                  ? 'Active — will be shown in app (others will be deactivated)'
+                  ? 'Active — will be shown in app'
                   : 'Inactive — will not be shown in app'}
               </span>
             </div>
@@ -415,7 +379,7 @@ export default function AnnouncementManagement() {
 Document fields:
   title     : string   (required)
   url       : string   (optional — opens in browser on tap)
-  isActive  : boolean  (only one true at a time)
+  isActive  : boolean  (multiple can be true simultaneously)
   createdAt : timestamp`}
         </pre>
       </details>

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, ArrowUp, ArrowDown, FileText, Loader, AlertCircle, Image, FileInput, Calendar, Hash, Type } from 'lucide-react';
+import { Plus, Trash2, ArrowUp, ArrowDown, FileText, Loader, AlertCircle, Image, FileInput, Calendar, Hash, Type, Clock } from 'lucide-react';
 import { serviceManagementService, dynamicFieldsService, ServiceWithCategory, DynamicField } from '../../../services/categoryService';
 
 interface FieldFormData {
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'image' | 'pdf';
+  fieldType: 'text' | 'number' | 'date' | 'image' | 'pdf' | 'appointment';
   isRequired: boolean;
   placeholder: string;
   displayOrder: number;
@@ -22,6 +22,8 @@ export default function DocumentRequirements() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>('');
   const [successMessage, setSuccessMessage] = useState<string>('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Load all active services on mount
   useEffect(() => {
@@ -83,6 +85,27 @@ export default function DocumentRequirements() {
       return unsubscribe;
     }
   }, [selectedServiceId]);
+
+  const handleDeleteService = async (serviceId: string) => {
+    setDeleting(true);
+    try {
+      await serviceManagementService.deleteServicePermanently(serviceId);
+      // If the deleted service was selected, clear the selection
+      if (selectedServiceId === serviceId) {
+        setSelectedServiceId('');
+        setSelectedServiceName('');
+        setSelectedCategoryName('');
+        setFields([]);
+      }
+      setSuccessMessage('Service deleted successfully.');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (err: any) {
+      setError(`Error deleting service: ${err.message}`);
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmId(null);
+    }
+  };
 
   const handleSelectService = (service: ServiceWithCategory) => {
     console.log('🎯 Selected service:', service);
@@ -180,6 +203,8 @@ export default function DocumentRequirements() {
         return <Image className="w-4 h-4" />;
       case 'pdf':
         return <FileInput className="w-4 h-4" />;
+      case 'appointment':
+        return <Clock className="w-4 h-4" />;
       default:
         return <FileText className="w-4 h-4" />;
     }
@@ -220,6 +245,35 @@ export default function DocumentRequirements() {
         </div>
       )}
 
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-4">
+            <h3 className="text-base font-medium text-[#1a1a1a] mb-2">Delete Service</h3>
+            <p className="text-sm text-[#666666] mb-6">
+              Are you sure you want to delete this service? This will also remove its document field configuration. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm text-[#1a1a1a] border-2 border-[#e5e5e5] rounded hover:bg-[#f9f9f9] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteService(deleteConfirmId)}
+                disabled={deleting}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-[#F44336] text-white rounded hover:bg-[#d32f2f] transition-colors disabled:opacity-50"
+              >
+                {deleting && <Loader className="w-4 h-4 animate-spin" />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2-Panel Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* LEFT PANEL: Service List */}
@@ -241,20 +295,31 @@ export default function DocumentRequirements() {
                 </div>
               ) : (
                 services.map((service) => (
-                  <button
+                  <div
                     key={service.id}
-                    onClick={() => handleSelectService(service)}
                     className={`
-                      w-full px-5 py-4 text-left border-b-2 border-[#e5e5e5] transition-colors
+                      flex items-center border-b-2 border-[#e5e5e5] transition-colors
                       ${selectedServiceId === service.id
-                        ? 'bg-[#E8E8FF] border-l-4 border-l-[#4C4CFF] pl-4'
+                        ? 'bg-[#E8E8FF] border-l-4 border-l-[#4C4CFF]'
                         : 'hover:bg-[#f9f9f9]'
                       }
                     `}
                   >
-                    <h3 className="text-sm font-medium text-[#1a1a1a]">{service.name}</h3>
-                    <p className="text-xs text-[#666666] mt-1">{service.categoryName}</p>
-                  </button>
+                    <button
+                      onClick={() => handleSelectService(service)}
+                      className="flex-1 px-5 py-4 text-left min-w-0"
+                    >
+                      <h3 className="text-sm font-medium text-[#1a1a1a] truncate">{service.name}</h3>
+                      <p className="text-xs text-[#666666] mt-1 truncate">{service.categoryName}</p>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(service.id); }}
+                      title="Delete service"
+                      className="flex-shrink-0 mr-3 p-1.5 text-[#F44336] hover:bg-[#FFEBEE] rounded transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -391,6 +456,7 @@ export default function DocumentRequirements() {
                             <option value="date">Date</option>
                             <option value="image">Image Upload</option>
                             <option value="pdf">PDF Upload</option>
+                            <option value="appointment">Appointment</option>
                           </select>
                           <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                             {getFieldTypeIcon(field.fieldType)}

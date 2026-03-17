@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Users, UserCheck, UserX, AlertCircle, FileText, Wallet } from 'lucide-react';
+import { Users, UserCheck, UserX, AlertCircle, FileText, Wallet, ChevronRight } from 'lucide-react';
 import { dashboardService, DashboardStats } from '@/services/firebaseService';
+import CategoryApplications from './CategoryApplications';
+import { authService } from '@/services/authService';
 import {
   getFirestore,
   collection,
   query,
+  where,
   orderBy,
   limit,
   onSnapshot,
   Timestamp,
+  getDocs,
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 
@@ -72,10 +76,23 @@ const formatDateTime = (timestamp: Timestamp | null | undefined) => {
   });
 };
 
+interface CategoryStat {
+  id: string;
+  name: string;
+  applicationCount: number;
+}
+
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>(initialStats);
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>([]);
   const [recentDocuments, setRecentDocuments] = useState<RecentDocument[]>([]);
+  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([]);
+  const [categoryStatsLoading, setCategoryStatsLoading] = useState(true);
+  const [selectedCategory, setSelectedCategory] = useState<{ id: string; name: string } | null>(null);
+
+  const currentUser = authService.getCurrentUser();
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const allowedCategories = currentUser?.allowedCategories ?? [];
 
   useEffect(() => {
     // Subscribe to dashboard stats
@@ -127,10 +144,74 @@ export default function Dashboard() {
       setRecentDocuments(docs);
     });
 
+    // ── Category-wise application stats ─────────────────────────────────────
+    // 1. Fetch categories  →  id → name
+    // 2. Fetch services    →  id → categoryId
+    // 3. Live-listen to serviceApplications, group by category in memory
+    let categoryNameMap: Record<string, string> = {};
+    let serviceCategoryMap: Record<string, string> = {};
+
+    const fetchCategoryMaps = async () => {
+      try {
+        const [catSnap, svcSnap] = await Promise.all([
+          getDocs(query(collection(db, 'categories'), where('isActive', '==', true))),
+          getDocs(collection(db, 'services')),
+        ]);
+        catSnap.forEach((d) => {
+          const data = d.data();
+          categoryNameMap[d.id] = data.name_en || data.name || d.id;
+        });
+        svcSnap.forEach((d) => {
+          const cid: string = d.data().categoryId || '';
+          if (cid) serviceCategoryMap[d.id] = cid;
+        });
+      } catch (e) {
+        console.error('Error fetching category/service maps:', e);
+      }
+    };
+
+    let unsubscribeServiceApps = () => {};
+
+    fetchCategoryMaps().then(() => {
+      unsubscribeServiceApps = onSnapshot(
+        collection(db, 'serviceApplications'),
+        (snapshot) => {
+          const counts: Record<string, number> = {};
+          snapshot.forEach((d) => {
+            const sid: string = d.data().serviceId || '';
+            const cid = serviceCategoryMap[sid] || '';
+            if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+          });
+
+          // Build result for every known category (even those with 0 apps)
+          const result: CategoryStat[] = Object.keys(categoryNameMap).map((id) => ({
+            id,
+            name: categoryNameMap[id],
+            applicationCount: counts[id] ?? 0,
+          }));
+
+          // Sort descending by count, then alphabetically
+          result.sort((a, b) =>
+            b.applicationCount !== a.applicationCount
+              ? b.applicationCount - a.applicationCount
+              : a.name.localeCompare(b.name)
+          );
+
+          setCategoryStats(result);
+          setCategoryStatsLoading(false);
+        },
+        (err) => {
+          console.error('Error listening to serviceApplications:', err);
+          setCategoryStatsLoading(false);
+        }
+      );
+    });
+
     return () => {
       unsubscribe();
       unsubscribeAgents();
       unsubscribeDocs();
+      unsubscribeServiceApps();
     };
   }, []);
 
@@ -145,6 +226,17 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Navigate into category applications */}
+      {selectedCategory && (
+        <CategoryApplications
+          categoryId={selectedCategory.id}
+          categoryName={selectedCategory.name}
+          onBack={() => setSelectedCategory(null)}
+        />
+      )}
+
+      {/* Normal dashboard — hidden while a category is open */}
+      {!selectedCategory && <>
       {/* Page Header */}
       <div>
         <h1 className="text-2xl text-gray-100 mb-2">Dashboard</h1>
@@ -171,6 +263,53 @@ export default function Dashboard() {
             </div>
           );
         })}
+      </div>
+
+      {/* Category-wise Application Statistics */}
+      <div>
+        <h2 className="text-lg text-gray-100 mb-4">Category-wise Applications</h2>
+
+        {categoryStatsLoading ? (
+          <div className="text-sm text-gray-400 py-4">Loading category statistics…</div>
+        ) : categoryStats.length === 0 ? (
+          <div className="text-sm text-gray-400 py-4">No categories found.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {categoryStats
+              .filter((cat) => isSuperAdmin || allowedCategories.includes(cat.id))
+              .map((cat, index) => {
+              const palette = [
+                '#4C4CFF', '#FF9800', '#4CAF50',
+                '#F44336', '#9C27B0', '#00BCD4',
+                '#E91E63', '#FF5722', '#009688',
+                '#3F51B5',
+              ];
+              const color = palette[index % palette.length];
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory({ id: cat.id, name: cat.name })}
+                  className="rounded-lg p-5 shadow-md text-white flex items-start justify-between hover:opacity-90 transition-opacity text-left w-full"
+                  style={{ backgroundColor: color }}
+                >
+                  <div className="flex-1 pr-4">
+                    <p className="text-sm text-white/90 mb-2">{cat.name}</p>
+                    <p className="text-2xl font-semibold">
+                      {cat.applicationCount.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-white/70 mt-1">Tap to review applications</p>
+                  </div>
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-12 h-12 rounded flex items-center justify-center bg-white/10">
+                      <FileText className="w-6 h-6 text-white" />
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-white/60" />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Recent Activity Section */}
@@ -253,6 +392,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+    </>}
     </div>
   );
 }

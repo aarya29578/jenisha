@@ -64,15 +64,29 @@ class _ReferScreenState extends State<ReferScreen> {
         _loading = false;
       });
 
-      // One-time fetch to count how many users registered with this referral code
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('referredBy', isEqualTo: code)
-          .get();
+      // Count referred users and sum commission earnings in parallel
+      final results = await Future.wait([
+        FirebaseFirestore.instance
+            .collection('users')
+            .where('referredBy', isEqualTo: code)
+            .get(),
+        FirebaseFirestore.instance
+            .collection('wallet_transactions')
+            .where('agentId', isEqualTo: user.uid)
+            .where('type', isEqualTo: 'commission')
+            .get(),
+      ]);
+
+      final referredSnap = results[0];
+      final commissionSnap = results[1];
+
+      final earnings = commissionSnap.docs.fold<double>(
+          0, (sum, d) => sum + ((d.data()['amount'] ?? 0) as num).toDouble());
 
       if (!mounted) return;
       setState(() {
-        _totalReferrals = snapshot.docs.length;
+        _totalReferrals = referredSnap.docs.length;
+        _totalEarnings = earnings;
         _statsLoading = false;
       });
     } catch (e) {
@@ -417,14 +431,20 @@ class _ReferScreenState extends State<ReferScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          const Text(
-                            '₹500',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF333333),
-                            ),
-                          ),
+                          _statsLoading
+                              ? const SizedBox(
+                                  height: 24,
+                                  width: 24,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Color(0xFF333333)))
+                              : Text(
+                                  '₹${_totalEarnings.toStringAsFixed(_totalEarnings == _totalEarnings.roundToDouble() ? 0 : 2)}',
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF333333),
+                                  ),
+                                ),
                         ],
                       ),
                     ),

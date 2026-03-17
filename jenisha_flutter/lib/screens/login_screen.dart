@@ -521,6 +521,45 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ),
                                 ),
                               ),
+                              const SizedBox(height: 12),
+
+                              // ID & Password Sign-In Button
+                              ElevatedButton.icon(
+                                onPressed: _isLoading
+                                    ? null
+                                    : () {
+                                        showModalBottomSheet(
+                                          context: context,
+                                          isScrollControlled: true,
+                                          backgroundColor: Colors.transparent,
+                                          builder: (_) =>
+                                              const _IdPasswordSheet(),
+                                        );
+                                      },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFF0F4FF),
+                                  foregroundColor: const Color(0xFF1E40AF),
+                                  side: const BorderSide(
+                                    color: Color(0xFFBFCFFF),
+                                    width: 1,
+                                  ),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                icon:
+                                    const Icon(Icons.badge_outlined, size: 20),
+                                label: const Text(
+                                  'Continue with ID & Password',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -556,6 +595,471 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ID & Password bottom-sheet
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _IdPasswordSheet extends StatefulWidget {
+  const _IdPasswordSheet();
+
+  @override
+  State<_IdPasswordSheet> createState() => _IdPasswordSheetState();
+}
+
+class _IdPasswordSheetState extends State<_IdPasswordSheet> {
+  /// null = mode-selection screen, 'new' = register, 'old' = login
+  String? _mode;
+
+  final _idController = TextEditingController();
+  final _passController = TextEditingController();
+  final _confirmPassController = TextEditingController();
+
+  bool _isLoading = false;
+  bool _obscurePass = true;
+  bool _obscureConfirm = true;
+
+  @override
+  void dispose() {
+    _idController.dispose();
+    _passController.dispose();
+    _confirmPassController.dispose();
+    super.dispose();
+  }
+
+  void _showError(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.red),
+    );
+  }
+
+  Future<void> _handleSubmit() async {
+    final id = _idController.text.trim();
+    final password = _passController.text;
+
+    if (id.isEmpty) {
+      _showError('Please enter your ID.');
+      return;
+    }
+    if (password.length < 6) {
+      _showError('Password must be at least 6 characters.');
+      return;
+    }
+    if (_mode == 'new' && password != _confirmPassController.text) {
+      _showError('Passwords do not match.');
+      return;
+    }
+
+    // Synthetic email so Firebase Auth email/password flow works
+    final syntheticEmail = '${id.toLowerCase()}@jenisha.app';
+
+    setState(() => _isLoading = true);
+
+    try {
+      if (_mode == 'new') {
+        // ── REGISTER ──────────────────────────────────────────────────
+        final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: syntheticEmail,
+          password: password,
+        );
+        final user = cred.user!;
+
+        final firestoreService = FirestoreService();
+        await firestoreService.createDraftUserDocument(
+          fullName: '',
+          email: syntheticEmail,
+          phoneNumber: '',
+        );
+
+        // Store the human-readable custom ID alongside the document
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'customId': id,
+          'authMethod': 'id_password',
+        }, SetOptions(merge: true));
+
+        final userService = UserService();
+        userService.userType = 'new';
+        userService.registrationStatus = 'incomplete';
+        userService.userEmail = syntheticEmail;
+
+        if (!mounted) return;
+        Navigator.of(context).pop();
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/registration', (route) => false);
+      } else {
+        // ── LOGIN ──────────────────────────────────────────────────────
+        final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: syntheticEmail,
+          password: password,
+        );
+        final user = cred.user!;
+
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (!mounted) return;
+
+        if (!userDoc.exists) {
+          _showError('No account found for this ID. Please register first.');
+          await FirebaseAuth.instance.signOut();
+          setState(() => _isLoading = false);
+          return;
+        }
+
+        final data = userDoc.data()!;
+        final status = (data['status'] as String?) ?? 'pending';
+
+        final userService = UserService();
+        userService.userType = 'existing';
+        userService.registrationStatus = status;
+        userService.userEmail = syntheticEmail;
+        userService.userName = (data['fullName'] as String?) ?? 'User';
+
+        Navigator.of(context).pop();
+
+        if (status == 'approved') {
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        } else if (status == 'rejected' || status == 'blocked') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'Your account has been blocked or rejected. Please contact support.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          await FirebaseAuth.instance.signOut();
+        } else if (status == 'incomplete') {
+          Navigator.pushNamedAndRemoveUntil(
+              context, '/registration', (route) => false);
+        } else {
+          Navigator.pushNamedAndRemoveUntil(
+              context, '/registration-status', (route) => false,
+              arguments: 'pending');
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      String msg;
+      switch (e.code) {
+        case 'email-already-in-use':
+          msg = 'This ID is already registered. Use "Old User" to sign in.';
+          break;
+        case 'user-not-found':
+        case 'wrong-password':
+        case 'invalid-credential':
+          msg = 'Invalid ID or password.';
+          break;
+        case 'weak-password':
+          msg = 'Password is too weak. Use at least 6 characters.';
+          break;
+        case 'too-many-requests':
+          msg = 'Too many attempts. Please try again later.';
+          break;
+        default:
+          msg = 'Authentication failed. ${e.message ?? ''}';
+      }
+      if (mounted) {
+        _showError(msg);
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError('Error: $e');
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: _mode == null ? _buildModeSelection() : _buildForm(),
+      ),
+    );
+  }
+
+  Widget _buildModeSelection() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _dragHandle(),
+        const SizedBox(height: 20),
+        const Text(
+          'Continue with ID & Password',
+          style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1A1A1A)),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Select your account type to continue',
+          style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+        ),
+        const SizedBox(height: 28),
+        _ModeCard(
+          icon: Icons.person_add_alt_1_outlined,
+          title: 'New User',
+          subtitle: 'Create a new account with ID & password',
+          color: const Color(0xFF1E40AF),
+          onTap: () => setState(() => _mode = 'new'),
+        ),
+        const SizedBox(height: 12),
+        _ModeCard(
+          icon: Icons.login_rounded,
+          title: 'Old User',
+          subtitle: 'Sign in with your existing ID & password',
+          color: const Color(0xFF065F46),
+          onTap: () => setState(() => _mode = 'old'),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Widget _buildForm() {
+    final isNew = _mode == 'new';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _dragHandle(),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            GestureDetector(
+              onTap: () => setState(() {
+                _mode = null;
+                _idController.clear();
+                _passController.clear();
+                _confirmPassController.clear();
+              }),
+              child: const Icon(Icons.arrow_back_ios_new_rounded,
+                  size: 18, color: Color(0xFF374151)),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              isNew ? 'New User Registration' : 'Sign In',
+              style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1A1A)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        _label('User ID'),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _idController,
+          textInputAction: TextInputAction.next,
+          decoration: _inputDeco(
+              hint: 'Enter your unique ID', icon: Icons.badge_outlined),
+        ),
+        const SizedBox(height: 16),
+        _label('Password'),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _passController,
+          obscureText: _obscurePass,
+          textInputAction: isNew ? TextInputAction.next : TextInputAction.done,
+          onSubmitted: isNew ? null : (_) => _handleSubmit(),
+          decoration: _inputDeco(
+            hint: 'Enter password (min 6 chars)',
+            icon: Icons.lock_outline,
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePass
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                size: 20,
+                color: Colors.grey.shade500,
+              ),
+              onPressed: () => setState(() => _obscurePass = !_obscurePass),
+            ),
+          ),
+        ),
+        if (isNew) ...[
+          const SizedBox(height: 16),
+          _label('Confirm Password'),
+          const SizedBox(height: 6),
+          TextField(
+            controller: _confirmPassController,
+            obscureText: _obscureConfirm,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _handleSubmit(),
+            decoration: _inputDeco(
+              hint: 'Re-enter password',
+              icon: Icons.lock_outline,
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscureConfirm
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  size: 20,
+                  color: Colors.grey.shade500,
+                ),
+                onPressed: () =>
+                    setState(() => _obscureConfirm = !_obscureConfirm),
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 24),
+        SizedBox(
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _handleSubmit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor:
+                  isNew ? const Color(0xFF1E40AF) : const Color(0xFF065F46),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              elevation: 0,
+            ),
+            child: _isLoading
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white),
+                  )
+                : Text(
+                    isNew ? 'Register & Continue' : 'Sign In',
+                    style: const TextStyle(
+                        fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _dragHandle() => Center(
+        child: Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade300,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+      );
+
+  Widget _label(String text) => Text(
+        text,
+        style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF374151)),
+      );
+
+  InputDecoration _inputDeco({
+    required String hint,
+    required IconData icon,
+    Widget? suffixIcon,
+  }) =>
+      InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: Color(0xFFBBBBBB), fontSize: 14),
+        prefixIcon: Icon(icon, size: 20, color: const Color(0xFF9CA3AF)),
+        suffixIcon: suffixIcon,
+        filled: true,
+        fillColor: const Color(0xFFF9FAFB),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: Color(0xFF1E40AF), width: 1.5),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+      );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mode selection card widget
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withOpacity(0.06),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: color, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: color)),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF6B7280))),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: color, size: 20),
+            ],
           ),
         ),
       ),

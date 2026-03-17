@@ -6,6 +6,7 @@
  */
 
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 
@@ -253,3 +254,135 @@ exports.createAdminUser = onCall(
     );
   }
 });
+
+/**
+ * processApplicationCommission  (v2 Firestore trigger)
+ *
+ * Fires whenever a new serviceApplications document is created.
+ * If:
+ *   - paymentStatus == 'paid'
+ *   - the submitting user has a `referredBy` code
+ *   - a user (agent) exists with matching `referCode`
+ *
+ * Then:
+ *   1. Reads commission % from settings/commission
+ *   2. Credits agent walletBalance via increment
+ *   3. Writes a wallet_transactions record
+ *   4. Stamps the application with commission details
+ */
+exports.processApplicationCommission = onDocumentCreated(
+  {
+    document: 'serviceApplications/{applicationId}',
+    region: 'us-central1',
+  },
+  async (event) => {
+    const snapshot = event.data;
+    if (!snapshot) return;
+
+    const applicationId = event.params.applicationId;
+    const data = snapshot.data();
+
+    // Only process paid applications
+    if (!data.paymentStatus || data.paymentStatus !== 'paid') return;
+
+    // Skip if commission was already processed client-side (prevents double-credit)
+    if (data.commissionGenerated === true) {
+      console.log(`ℹ️  Commission already processed for application ${applicationId} — skipping`);
+      return;
+    }
+
+    const userId = data.userId;
+    const amountPaid = typeof data.amountPaid === 'number' ? data.amountPaid : 0;
+    if (!userId || amountPaid <= 0) return;
+
+    try {
+      const db = admin.firestore();
+
+      // ── 1. Fetch the submitting user to get referredBy ──────────────────
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        console.log(`ℹ️  User ${userId} not found — skipping commission`);
+        return;
+      }
+
+      const referredBy = (userDoc.data().referredBy || '').trim();
+      if (!referredBy) {
+        console.log(`ℹ️  User ${userId} has no referredBy — no commission`);
+        return;
+      }
+
+      // ── 2. Find the agent whose referCode matches referredBy ────────────
+      const agentQuery = await db
+        .collection('users')
+        .where('referCode', '==', referredBy)
+        .limit(1)
+        .get();
+
+      if (agentQuery.empty) {
+        console.log(`ℹ️  No agent found for referCode "${referredBy}"`);
+        return;
+      }
+
+      const agentDoc = agentQuery.docs[0];
+      const agentId = agentDoc.id;
+      const agentName = agentDoc.data().fullName || agentDoc.data().name || 'Agent';
+
+      // Prevent an agent from earning commission on their own applications
+      if (agentId === userId) {
+        console.log(`ℹ️  Agent ${agentId} submitted their own application — skipping`);
+        return;
+      }
+
+      // ── 3. Read commission percentage from settings/commission ──────────
+      const settingsDoc = await db.collection('settings').doc('commission').get();
+      const commissionPercentage = settingsDoc.exists
+        ? (typeof settingsDoc.data().commissionPercentage === 'number'
+            ? settingsDoc.data().commissionPercentage
+            : 20)
+        : 20;
+
+      const commissionAmount = Math.round((amountPaid * commissionPercentage) / 100 * 100) / 100;
+      if (commissionAmount <= 0) return;
+
+      console.log(`💰 Commission: ₹${commissionAmount} (${commissionPercentage}% of ₹${amountPaid}) → agent ${agentId} (${agentName})`);
+
+      // ── 4. Credit agent wallet (atomic increment via Admin SDK) ────────
+      await db.collection('users').doc(agentId).update({
+        walletBalance: admin.firestore.FieldValue.increment(commissionAmount),
+        lastCommissionAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // ── 5. Record the commission transaction ────────────────────────────
+      await db.collection('wallet_transactions').add({
+        agentId,
+        agentName,
+        userId,
+        customerName: data.fullName || data.userName || '',
+        userName: data.fullName || data.userName || '',
+        serviceId: data.serviceId || '',
+        serviceName: data.serviceName || '',
+        applicationId,
+        amount: commissionAmount,
+        commissionPercentage,
+        serviceFee: amountPaid,
+        type: 'commission',
+        description: `Commission from ${data.serviceName || 'service'}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // ── 6. Stamp the application with commission details ─────────────────
+      await snapshot.ref.update({
+        commissionGenerated: true,
+        commissionAgentId: agentId,
+        commissionAgentName: agentName,
+        commissionAmount,
+        commissionPercentage,
+      });
+
+      console.log(`✅ Commission ₹${commissionAmount} credited to agent ${agentId}`);
+    } catch (err) {
+      console.error('❌ processApplicationCommission error:', err);
+      // Non-fatal: application is already saved; commission can be retried manually
+    }
+  }
+);
