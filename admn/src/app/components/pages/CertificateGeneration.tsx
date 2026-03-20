@@ -49,10 +49,10 @@ export default function CertificateGeneration() {
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
 
   useEffect(() => {
-    // Fetch approved service applications
+    // Fetch approved + already-generated service applications
     const q = query(
       collection(db, 'serviceApplications'),
-      where('status', '==', 'approved'),
+      where('status', 'in', ['approved', 'generated']),
       orderBy('createdAt', 'desc')
     );
 
@@ -85,14 +85,17 @@ export default function CertificateGeneration() {
     if (!file) return;
 
     // Validate file type
-    if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const fileExt = file.name.split('.').pop()?.toLowerCase() ?? '';
+    const allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx'];
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExt)) {
+      alert('Unsupported file type. Please select an image (JPG, PNG), PDF, DOC, or DOCX file.');
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-      alert('File size must be less than 5MB');
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      alert('File size must be less than 10MB');
       return;
     }
 
@@ -111,6 +114,7 @@ export default function CertificateGeneration() {
       });
 
       // Upload to Hostinger PHP backend
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
       const response = await fetch('https://jenishaonlineservice.com/uploads/upload_field.php', {
         method: 'POST',
         headers: {
@@ -118,7 +122,7 @@ export default function CertificateGeneration() {
         },
         body: JSON.stringify({
           image: base64,
-          filename: `certificate_${appId}_${Date.now()}.jpg`,
+          filename: `certificate_${appId}_${Date.now()}.${ext}`,
         }),
       });
 
@@ -205,7 +209,7 @@ export default function CertificateGeneration() {
                           type="file"
                           ref={(el) => fileInputRefs.current[app.id] = el}
                           onChange={(e) => handleFileSelect(app.id, e)}
-                          accept="image/*"
+                          accept="image/*,.pdf,.doc,.docx"
                           className="hidden"
                         />
                         <button 

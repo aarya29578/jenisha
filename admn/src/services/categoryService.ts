@@ -75,11 +75,11 @@ export interface DocumentRequirement {
 export interface DynamicField {
   fieldId: string;
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'image' | 'pdf' | 'appointment';
+  fieldType: 'text' | 'number' | 'date' | 'dob' | 'address' | 'mobile' | 'image' | 'pdf' | 'appointment' | 'time_range' | 'document' | 'template';
   isRequired: boolean;
   placeholder?: string;
   displayOrder: number;
-  maxSizeKB?: number; // Only applicable when fieldType === 'image' (range: 500–5120 KB)
+  maxSizeKB?: number; // Applicable for image/pdf/document/template uploads
 }
 
 export interface ServiceDocumentConfig {
@@ -225,6 +225,7 @@ export const categoryService = {
               id: doc.id,
               name: data.name || '',
               icon: data.icon || '',
+              customLogoUrl: data.customLogoUrl || undefined,
               order: data.order || 0,
               isActive: data.isActive ?? true,
               createdAt: data.createdAt || null,
@@ -285,6 +286,7 @@ export const categoryService = {
               id: doc.id,
               name: data.name || '',
               icon: data.icon || '',
+              customLogoUrl: data.customLogoUrl || undefined,
               order: data.order || 0,
               isActive: true,
               createdAt: data.createdAt || null,

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -134,7 +135,10 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
 
               if (fieldType == 'text' ||
                   fieldType == 'number' ||
-                  fieldType == 'date') {
+                  fieldType == 'date' ||
+                  fieldType == 'dob' ||
+                  fieldType == 'address' ||
+                  fieldType == 'mobile') {
                 _textControllers[fieldName] = TextEditingController();
                 _textControllers[fieldName]!.addListener(() {
                   setState(() {});
@@ -170,12 +174,24 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       final fieldType =
           ((field['fieldType'] ?? field['type']) as String? ?? 'text').trim();
 
-      if (fieldType == 'text' || fieldType == 'number' || fieldType == 'date') {
+      if (fieldType == 'text' ||
+          fieldType == 'number' ||
+          fieldType == 'date' ||
+          fieldType == 'dob' ||
+          fieldType == 'address' ||
+          fieldType == 'mobile') {
         final controller = _textControllers[fieldName];
         if (controller == null || controller.text.trim().isEmpty) {
           return false;
         }
-      } else if (fieldType == 'image' || fieldType == 'pdf') {
+        // Mobile: require exactly 10 digits
+        if (fieldType == 'mobile') {
+          final digits = controller.text.trim().replaceAll(RegExp(r'\D'), '');
+          if (digits.length != 10) return false;
+        }
+      } else if (fieldType == 'image' ||
+          fieldType == 'pdf' ||
+          fieldType == 'document') {
         final value = _dynamicFieldValues[fieldName];
         if (value == null || value.isEmpty) {
           return false;
@@ -185,7 +201,13 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
             _appointmentTimes[fieldName] == null) {
           return false;
         }
+      } else if (fieldType == 'time_range') {
+        if (_appointmentTimes['${fieldName}_start'] == null ||
+            _appointmentTimes['${fieldName}_end'] == null) {
+          return false;
+        }
       }
+      // template: admin-only, skip validation
     }
 
     return true;
@@ -500,15 +522,25 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
             '';
         final type =
             ((field['fieldType'] ?? field['type']) as String? ?? 'text').trim();
-        if (type == 'text' || type == 'number' || type == 'date') {
+        if (type == 'text' ||
+            type == 'number' ||
+            type == 'date' ||
+            type == 'dob' ||
+            type == 'address' ||
+            type == 'mobile') {
           if (_textControllers[name]?.text.trim().isEmpty ?? true) {
             missing.add(name);
           }
-        } else if (type == 'image' || type == 'pdf') {
+        } else if (type == 'image' || type == 'pdf' || type == 'document') {
           if (_dynamicFieldValues[name]?.isEmpty ?? true) missing.add(name);
         } else if (type == 'appointment') {
           if (_appointmentDates[name] == null ||
               _appointmentTimes[name] == null) {
+            missing.add(name);
+          }
+        } else if (type == 'time_range') {
+          if (_appointmentTimes['${name}_start'] == null ||
+              _appointmentTimes['${name}_end'] == null) {
             missing.add(name);
           }
         }
@@ -586,12 +618,17 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
 
         if (fieldType == 'text' ||
             fieldType == 'number' ||
-            fieldType == 'date') {
+            fieldType == 'date' ||
+            fieldType == 'dob' ||
+            fieldType == 'address' ||
+            fieldType == 'mobile') {
           final controller = _textControllers[fieldName];
           if (controller != null) {
             fieldData[fieldName] = controller.text.trim();
           }
-        } else if (fieldType == 'image' || fieldType == 'pdf') {
+        } else if (fieldType == 'image' ||
+            fieldType == 'pdf' ||
+            fieldType == 'document') {
           final value = _dynamicFieldValues[fieldName];
           if (value != null) {
             fieldData[fieldName] = value;
@@ -607,7 +644,15 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
             final minute = time.minute.toString().padLeft(2, '0');
             fieldData[fieldName] = '$day/$month/$year | $hour:$minute';
           }
+        } else if (fieldType == 'time_range') {
+          final start = _appointmentTimes['${fieldName}_start'];
+          final end = _appointmentTimes['${fieldName}_end'];
+          if (start != null && end != null) {
+            fieldData[fieldName] =
+                '${start.format(context)} - ${end.format(context)}';
+          }
         }
+        // template: admin-only, skip in user-facing form
       }
 
       print('✅ Submitting application:');
@@ -843,9 +888,14 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                                     Colors.black87)),
                         Text(
                             AppLocalizations.of(context)
-                                .translateText(_serviceName),
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade600)),
+                                .translateText(_serviceName)
+                                .toUpperCase(),
+                            style: GoogleFonts.inter(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1A1A1A),
+                              letterSpacing: 0.4,
+                            )),
                       ],
                     ),
                   ),
@@ -1155,15 +1205,27 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       );
 
       // Build field based on type
-      if (fieldType == 'text' || fieldType == 'number') {
+      if (fieldType == 'template') {
+        // Admin-only template field — not rendered in user-facing form
+      } else if (fieldType == 'text' || fieldType == 'number') {
         widgets.add(
             _buildTextField(fieldName, fieldType, placeholder, isRequired));
+      } else if (fieldType == 'dob') {
+        widgets.add(_buildDobField(fieldName, isRequired));
       } else if (fieldType == 'date') {
         widgets.add(_buildDateField(fieldName, isRequired));
-      } else if (fieldType == 'image' || fieldType == 'pdf') {
+      } else if (fieldType == 'address') {
+        widgets.add(_buildAddressField(fieldName, placeholder, isRequired));
+      } else if (fieldType == 'mobile') {
+        widgets.add(_buildMobileField(fieldName, placeholder, isRequired));
+      } else if (fieldType == 'image' ||
+          fieldType == 'pdf' ||
+          fieldType == 'document') {
         widgets.add(_buildFileUploadField(fieldName, fieldType, isRequired));
       } else if (fieldType == 'appointment') {
         widgets.add(_buildAppointmentField(fieldName, isRequired));
+      } else if (fieldType == 'time_range') {
+        widgets.add(_buildTimeRangeField(fieldName, isRequired));
       } else {
         // Unknown type — fall back to a plain text field so the label is never orphaned
         print(
@@ -1481,7 +1543,377 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     );
   }
 
-  /// Build file upload field (image/pdf)
+  /// Build date-of-birth field — date picker with lastDate = today
+  Widget _buildDobField(String fieldName, bool isRequired) {
+    final controller = _textControllers[fieldName];
+    if (controller == null) return const SizedBox.shrink();
+
+    final showError =
+        _showValidationErrors && isRequired && controller.text.isEmpty;
+
+    return GestureDetector(
+      onTap: () async {
+        DateTime initial = DateTime.now();
+        if (controller.text.isNotEmpty) {
+          try {
+            final parts = controller.text.split('/');
+            if (parts.length == 3) {
+              initial = DateTime(
+                int.parse(parts[2]),
+                int.parse(parts[1]),
+                int.parse(parts[0]),
+              );
+            }
+          } catch (_) {}
+        }
+        final picked = await showDatePicker(
+          context: context,
+          initialDate:
+              initial.isAfter(DateTime.now()) ? DateTime.now() : initial,
+          firstDate: DateTime(1900),
+          lastDate: DateTime.now(),
+        );
+        if (picked != null) {
+          final formatted =
+              '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}';
+          controller.text = formatted;
+          if (mounted) setState(() {});
+        }
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFF),
+              border: Border.all(
+                color: showError ? Colors.red.shade600 : Colors.grey.shade300,
+                width: showError ? 1.5 : 1.0,
+              ),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.cake,
+                    size: 16,
+                    color: controller.text.isNotEmpty
+                        ? const Color(0xFF4C4CFF)
+                        : Colors.grey.shade500),
+                const SizedBox(width: 8),
+                Text(
+                  controller.text.isEmpty
+                      ? 'Select Date of Birth'
+                      : controller.text,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: controller.text.isNotEmpty
+                        ? const Color(0xFF1a1a1a)
+                        : Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (showError)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text(
+                'Date of birth is required',
+                style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Build address field — multi-line text input
+  Widget _buildAddressField(
+      String fieldName, String placeholder, bool isRequired) {
+    final controller = _textControllers[fieldName];
+    if (controller == null) return const SizedBox.shrink();
+
+    final showError =
+        _showValidationErrors && isRequired && controller.text.trim().isEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: controller,
+          maxLines: 4,
+          keyboardType: TextInputType.multiline,
+          textInputAction: TextInputAction.newline,
+          decoration: InputDecoration(
+            hintText: placeholder.isEmpty ? 'Enter address' : placeholder,
+            filled: true,
+            fillColor: const Color(0xFFF8FAFF),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color:
+                      showError ? Colors.red.shade600 : Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color:
+                      showError ? Colors.red.shade600 : Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide:
+                  const BorderSide(color: Color(0xFF4C4CFF), width: 1.5),
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          ),
+          onChanged: (_) {
+            if (_showValidationErrors) setState(() {});
+          },
+        ),
+        if (showError)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              'Address is required',
+              style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Build mobile number field — phone keyboard, 10-digit validation
+  Widget _buildMobileField(
+      String fieldName, String placeholder, bool isRequired) {
+    final controller = _textControllers[fieldName];
+    if (controller == null) return const SizedBox.shrink();
+
+    final digits = controller.text.trim().replaceAll(RegExp(r'\D'), '');
+    final showError = _showValidationErrors &&
+        isRequired &&
+        (controller.text.trim().isEmpty || digits.length != 10);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: controller,
+          keyboardType: TextInputType.phone,
+          maxLength: 15,
+          decoration: InputDecoration(
+            hintText: placeholder.isEmpty ? 'Enter mobile number' : placeholder,
+            counterText: '',
+            prefixIcon: const Icon(Icons.phone, size: 18),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFF),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color:
+                      showError ? Colors.red.shade600 : Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color:
+                      showError ? Colors.red.shade600 : Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide:
+                  const BorderSide(color: Color(0xFF4C4CFF), width: 1.5),
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+          onChanged: (_) {
+            if (_showValidationErrors) setState(() {});
+          },
+        ),
+        if (showError)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              controller.text.trim().isEmpty
+                  ? 'Mobile number is required'
+                  : 'Enter a valid 10-digit mobile number',
+              style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Build time-range field — separate start and end time pickers
+  Widget _buildTimeRangeField(String fieldName, bool isRequired) {
+    final startTime = _appointmentTimes['${fieldName}_start'];
+    final endTime = _appointmentTimes['${fieldName}_end'];
+    final bothSelected = startTime != null && endTime != null;
+    final showError = _showValidationErrors &&
+        isRequired &&
+        (startTime == null || endTime == null);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAFF),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: showError ? Colors.red.shade600 : Colors.grey.shade200,
+              width: showError ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Start time picker
+              GestureDetector(
+                onTap: () async {
+                  final picked = await showTimePicker(
+                    context: context,
+                    initialTime: startTime ?? TimeOfDay.now(),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _appointmentTimes['${fieldName}_start'] = picked;
+                      if (_showValidationErrors) _showValidationErrors = false;
+                    });
+                  }
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: startTime != null
+                          ? const Color(0xFF4C4CFF)
+                          : Colors.grey.shade300,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.white,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.access_time,
+                          size: 16,
+                          color: startTime != null
+                              ? const Color(0xFF4C4CFF)
+                              : Colors.grey.shade500),
+                      const SizedBox(width: 8),
+                      Text(
+                        startTime == null
+                            ? 'Select Start Time'
+                            : 'From: ${startTime.format(context)}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: startTime != null
+                              ? const Color(0xFF1a1a1a)
+                              : Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              // End time picker
+              GestureDetector(
+                onTap: () async {
+                  final picked = await showTimePicker(
+                    context: context,
+                    initialTime: endTime ?? TimeOfDay.now(),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _appointmentTimes['${fieldName}_end'] = picked;
+                      if (_showValidationErrors) _showValidationErrors = false;
+                    });
+                  }
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: endTime != null
+                          ? const Color(0xFF4C4CFF)
+                          : Colors.grey.shade300,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.white,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.access_time_filled,
+                          size: 16,
+                          color: endTime != null
+                              ? const Color(0xFF4C4CFF)
+                              : Colors.grey.shade500),
+                      const SizedBox(width: 8),
+                      Text(
+                        endTime == null
+                            ? 'Select End Time'
+                            : 'To: ${endTime.format(context)}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: endTime != null
+                              ? const Color(0xFF1a1a1a)
+                              : Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (bothSelected) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E9),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle,
+                          color: Colors.green, size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${startTime!.format(context)} - ${endTime!.format(context)}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF2E7D32),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (showError)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              'Please select both start and end time',
+              style: TextStyle(color: Colors.red.shade600, fontSize: 12),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Build file upload field (image/pdf/document)
   Widget _buildFileUploadField(
       String fieldName, String fieldType, bool isRequired) {
     final hasFile = _dynamicFieldValues[fieldName] != null;
@@ -1498,12 +1930,17 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
         ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (hasFile)
             Row(
               children: [
                 Icon(
-                  fieldType == 'image' ? Icons.image : Icons.picture_as_pdf,
+                  fieldType == 'image'
+                      ? Icons.image
+                      : fieldType == 'document'
+                          ? Icons.attach_file
+                          : Icons.picture_as_pdf,
                   color: Theme.of(context).extension<CustomColors>()!.success,
                   size: 24,
                 ),
@@ -1560,12 +1997,22 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                     )
                   : Icon(fieldType == 'image'
                       ? Icons.camera_alt
-                      : Icons.upload_file),
+                      : fieldType == 'document'
+                          ? Icons.attach_file
+                          : Icons.upload_file),
               label: Text(_uploadingFields.contains(fieldName)
                   ? AppLocalizations.of(context).get('uploading')
                   : fieldType == 'image'
                       ? AppLocalizations.of(context).get('upload_image')
-                      : AppLocalizations.of(context).get('upload_pdf')),
+                      : fieldType == 'document'
+                          ? 'Upload Document'
+                          : AppLocalizations.of(context).get('upload_pdf')),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
             ),
         ],
       ),
@@ -1632,14 +2079,18 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
           maxWidth: 1280,
           maxHeight: 1280,
         );
-      } else {
-        // For PDF, we'll use image picker for now (you may need a file picker package)
-        file = await picker.pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 70,
-          maxWidth: 1280,
-          maxHeight: 1280,
+      } else if (fieldType == 'pdf' || fieldType == 'document') {
+        final extensions =
+            fieldType == 'document' ? ['pdf', 'doc', 'docx'] : ['pdf'];
+        final pickerResult = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: extensions,
+          withData: false,
         );
+        if (pickerResult == null || pickerResult.files.isEmpty) return;
+        final pickedFile = pickerResult.files.first;
+        if (pickedFile.path == null) return;
+        file = XFile(pickedFile.path!);
       }
 
       if (file == null) return;

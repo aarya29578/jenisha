@@ -239,6 +239,7 @@ class _SimpleDocumentUploadState extends State<SimpleDocumentUpload>
                   imageUrl != null &&
                   imageUrl.isNotEmpty)
                 Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
                       height: 120,
@@ -321,6 +322,7 @@ class _SimpleDocumentUploadState extends State<SimpleDocumentUpload>
                   imageUrl.isNotEmpty &&
                   _selectedFile == null)
                 Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
                       height: 120,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, X, Filter, Search } from 'lucide-react';
+import { getApplicantName } from '../../../utils/getApplicantName';
 import {
   getFirestore,
   collection,
@@ -37,6 +38,7 @@ interface ServiceApplication {
   email?: string;
   documents?: Record<string, string>;
   fieldData?: Record<string, any>;
+  fields?: Array<{ fieldId?: string; fieldName?: string }>;
   filledFormUrl?: string;
   documentsMeta?: Record<
     string,
@@ -121,6 +123,7 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
             serviceName: data.serviceName,
             documents: data.documents ?? {},
             fieldData: data.fieldData ?? {},
+            fields: data.fields ?? [],
             filledFormUrl: data.filledFormUrl ?? '',
             documentsMeta: data.documentsMeta ?? {},
             createdAt: data.createdAt,
@@ -154,8 +157,7 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
     if (q) {
       result = result.filter(
         (a) =>
-          a.fullName?.toLowerCase().includes(q) ||
-          a.userName?.toLowerCase().includes(q) ||
+          getApplicantName(a).toLowerCase().includes(q) ||
           a.phone?.includes(searchTerm.trim()) ||
           a.id.toLowerCase().includes(q)
       );
@@ -258,7 +260,7 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
                     <h3 className="text-sm text-gray-100 truncate">
-                      {app.fullName || app.userName || app.userId}
+                      {getApplicantName(app)}
                     </h3>
                     <span className={`px-2 py-0.5 text-xs rounded flex-shrink-0 ${chipClass}`}>
                       {app.status.charAt(0).toUpperCase() + app.status.slice(1)}

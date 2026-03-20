@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, X, FileText, Download } from 'lucide-react';
 import { downloadFile } from '../../../utils/downloadFile';
+import { getApplicantName } from '../../../utils/getApplicantName';
 import {
   getFirestore,
   onSnapshot,
@@ -39,6 +40,7 @@ interface ServiceApplication {
   email?: string;
   documents?: Record<string, string>;
   fieldData?: Record<string, any>;
+  fields?: Array<{ fieldId?: string; fieldName?: string }>;
   filledFormUrl?: string;
   paymentStatus?: string;
   amountPaid?: number;
@@ -133,6 +135,7 @@ export default function ApplicationDetail() {
           categoryName: data.categoryName,
           documents: data.documents ?? {},
           fieldData: data.fieldData ?? {},
+          fields: data.fields ?? [],
           filledFormUrl: data.filledFormUrl ?? '',
           paymentStatus: data.paymentStatus,
           amountPaid: data.amountPaid,
@@ -318,7 +321,7 @@ export default function ApplicationDetail() {
             <p className="text-xs text-gray-500">{application.categoryName}</p>
           )}
           <h1 className="text-2xl text-gray-100">
-            {application.fullName || application.userName || application.userId}
+            {getApplicantName(application)}
           </h1>
           <p className="text-sm text-gray-400">
             {application.serviceName ?? application.serviceId}
@@ -339,7 +342,7 @@ export default function ApplicationDetail() {
         <div className="text-sm text-gray-400 space-y-2">
           <p>
             <strong className="text-gray-300">Name:</strong>{' '}
-            {application.fullName || application.userName || application.userId}
+            {getApplicantName(application)}
           </p>
           {application.phone && (
             <p><strong className="text-gray-300">Phone:</strong> {application.phone}</p>

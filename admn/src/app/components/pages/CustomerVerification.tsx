@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Check, X, Eye, FileText, Filter, Download, Search, ChevronDown } from 'lucide-react';
 import { downloadFile } from '@/utils/downloadFile';
+import { getApplicantName } from '@/utils/getApplicantName';
 import { authService } from '@/services/authService';
 import {
   getFirestore,
@@ -41,6 +42,7 @@ interface ServiceApplication {
   email?: string;
   documents?: Record<string, string>; // documentName -> imageUrl from Flutter
   fieldData?: Record<string, any>; // Dynamic fields from admin panel
+  fields?: Array<{ fieldId?: string; fieldName?: string }>;
   filledFormUrl?: string; // Filled form uploaded by the Flutter user
   documentsMeta?: Record<
     string,
@@ -153,8 +155,7 @@ export default function CustomerVerification() {
     if (q !== '') {
       result = result.filter(
         (app) =>
-          app.fullName?.toLowerCase().includes(q) ||
-          app.userName?.toLowerCase().includes(q) ||
+          getApplicantName(app).toLowerCase().includes(q) ||
           app.phone?.includes(searchTerm.trim()) ||
           app.id.toLowerCase().includes(q)
       );
@@ -188,6 +189,7 @@ export default function CustomerVerification() {
             serviceName: data.serviceName,
             documents: data.documents ?? {},
             fieldData: data.fieldData ?? {},
+            fields: data.fields ?? [],
             filledFormUrl: data.filledFormUrl ?? '',
             documentsMeta: data.documentsMeta ?? {},
             createdAt: data.createdAt,
@@ -514,7 +516,7 @@ export default function CustomerVerification() {
                         {app.serviceName ?? 'Service'} ({app.serviceId})
                       </h3>
                       <p className="text-xs text-gray-400">
-                        Applicant: {app.userName ?? app.userId}
+                        Applicant: {getApplicantName(app)}
                       </p>
                     </div>
                     <span className={`px-2 py-1 text-xs rounded ${chipClass}`}>
@@ -537,7 +539,7 @@ export default function CustomerVerification() {
               <div className="px-5 py-4 border-b-2 border-[#e5e5e5]">
                 <h2 className="text-base text-gray-100 mb-2">Application Details</h2>
                 <div className="text-sm text-gray-400 space-y-1">
-                  <p><strong>Customer:</strong> {selectedApplication.fullName || selectedApplication.userName || selectedApplication.userId}</p>
+                  <p><strong>Customer:</strong> {getApplicantName(selectedApplication)}</p>
                   {selectedApplication.phone && <p><strong>Phone:</strong> {selectedApplication.phone}</p>}
                   {selectedApplication.email && <p><strong>Email:</strong> {selectedApplication.email}</p>}
                   <p><strong>Service:</strong> {selectedApplication.serviceName ?? selectedApplication.serviceId}</p>

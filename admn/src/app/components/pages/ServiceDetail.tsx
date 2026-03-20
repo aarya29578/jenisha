@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Plus, Trash2, ArrowUp, ArrowDown, FileText, Loader,
   Image, FileInput, Calendar, Hash, Type, ArrowLeft,
-  Globe, FileDown,
+  Globe, FileDown, MapPin, Smartphone, FileArchive, Upload, Clock,
 } from 'lucide-react';
 import { dynamicFieldsService } from '../../../services/categoryService';
 
@@ -24,7 +24,7 @@ export interface ServiceRow {
 
 interface FieldFormData {
   fieldName: string;
-  fieldType: 'text' | 'number' | 'date' | 'image' | 'pdf';
+  fieldType: 'text' | 'number' | 'date' | 'dob' | 'address' | 'mobile' | 'image' | 'pdf' | 'appointment' | 'time_range' | 'document' | 'template';
   isRequired: boolean;
   placeholder: string;
   displayOrder: number;
@@ -42,12 +42,19 @@ interface Props {
 
 function FieldTypeIcon({ fieldType }: { fieldType: string }) {
   switch (fieldType) {
-    case 'text':    return <Type      className="w-4 h-4" />;
-    case 'number':  return <Hash      className="w-4 h-4" />;
-    case 'date':    return <Calendar  className="w-4 h-4" />;
-    case 'image':   return <Image     className="w-4 h-4" />;
-    case 'pdf':     return <FileInput className="w-4 h-4" />;
-    default:        return <FileText  className="w-4 h-4" />;
+    case 'text':       return <Type        className="w-4 h-4" />;
+    case 'number':     return <Hash        className="w-4 h-4" />;
+    case 'date':       return <Calendar    className="w-4 h-4" />;
+    case 'dob':        return <Calendar    className="w-4 h-4" />;
+    case 'address':    return <MapPin      className="w-4 h-4" />;
+    case 'mobile':     return <Smartphone  className="w-4 h-4" />;
+    case 'image':      return <Image       className="w-4 h-4" />;
+    case 'pdf':        return <FileInput   className="w-4 h-4" />;
+    case 'appointment':  return <Clock     className="w-4 h-4" />;
+    case 'time_range':   return <Clock     className="w-4 h-4" />;
+    case 'document':   return <FileArchive className="w-4 h-4" />;
+    case 'template':   return <Upload      className="w-4 h-4" />;
+    default:           return <FileText    className="w-4 h-4" />;
   }
 }
 
@@ -362,9 +369,16 @@ export default function ServiceDetail({ service, onBack }: Props) {
                       >
                         <option value="text">Text</option>
                         <option value="number">Number</option>
+                        <option value="dob">Date of Birth</option>
+                        <option value="address">Address</option>
+                        <option value="mobile">Mobile Number</option>
                         <option value="date">Date</option>
+                        <option value="appointment">Appointment</option>
+                        <option value="time_range">Time Period</option>
                         <option value="image">Image Upload</option>
                         <option value="pdf">PDF Upload</option>
+                        <option value="document">Document Upload</option>
+                        <option value="template">Template Upload (Admin)</option>
                       </select>
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
                         <FieldTypeIcon fieldType={field.fieldType} />
@@ -373,7 +387,7 @@ export default function ServiceDetail({ service, onBack }: Props) {
                   </div>
 
                   {/* Max image size */}
-                  {field.fieldType === 'image' && (
+                  {(field.fieldType === 'image' || field.fieldType === 'pdf' || field.fieldType === 'document' || field.fieldType === 'template') && (
                     <div>
                       <label className="block text-xs font-medium text-[#666666] mb-1">
                         Max Image Size (KB)

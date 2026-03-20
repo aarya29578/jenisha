@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/firestore_helper.dart';
 import '../providers/language_provider.dart';
@@ -54,6 +55,87 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _downloadCertificate(
+      BuildContext ctx, String certUrl, String serviceName) async {
+    try {
+      final encodedUrl = Uri.encodeFull(certUrl);
+      print('📥 CERT URL: $encodedUrl');
+
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        const SnackBar(
+          content: Text('Downloading…'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+
+      // Try public Downloads folder; fall back to app external dir (always writable)
+      Directory? dir;
+      try {
+        final downloads = Directory('/storage/emulated/0/Download');
+        if (!downloads.existsSync()) downloads.createSync(recursive: true);
+        final probe = File('${downloads.path}/.writable_test');
+        probe.writeAsBytesSync([]);
+        probe.deleteSync();
+        dir = downloads;
+      } catch (_) {
+        dir = await getExternalStorageDirectory();
+      }
+      dir ??= await getApplicationDocumentsDirectory();
+
+      final ext = certUrl.split('.').last.split('?').first.toLowerCase();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final filename =
+          'certificate_${serviceName.replaceAll(' ', '_')}_$timestamp.$ext';
+      final filePath = '${dir.path}/$filename';
+      print('💾 Saving to: $filePath');
+
+      await Dio().download(
+        encodedUrl,
+        filePath,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: true,
+          validateStatus: (status) => status! < 500,
+        ),
+      );
+
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Text(
+              '${AppLocalizations.of(ctx).get('certificate_downloaded')}\nSaved to: $filePath'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+
+      // Also register in the downloads list so the profile Downloads screen shows it
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('downloaded_certificates') ?? [];
+      final entry = json.encode({
+        'url': certUrl,
+        'serviceName': serviceName,
+        'downloadedAt':
+            DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now()),
+      });
+      if (!list.contains(entry)) {
+        list.add(entry);
+        await prefs.setStringList('downloaded_certificates', list);
+      }
+    } catch (e) {
+      print('❌ Error downloading certificate: $e');
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content:
+              Text('${AppLocalizations.of(ctx).get('failed_to_download')}: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _viewCertificateInApp(
@@ -187,6 +269,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     final status = s.toLowerCase();
     final customColors = Theme.of(context).extension<CustomColors>();
     switch (status) {
+      case 'generated':
       case 'approved':
         return customColors?.success ?? const Color(0xFF4CAF50);
       case 'pending':
@@ -204,6 +287,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
   Color _statusTextColor(String s) {
     final status = s.toLowerCase();
     switch (status) {
+      case 'generated':
       case 'approved':
       case 'pending':
       case 'in-progress':
@@ -545,15 +629,12 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              app.serviceName,
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w500,
-                                                fontSize: 14,
-                                                color: Theme.of(context)
-                                                        .extension<
-                                                            CustomColors>()
-                                                        ?.textPrimary ??
-                                                    const Color(0xFF333333),
+                                              app.serviceName.toUpperCase(),
+                                              style: GoogleFonts.inter(
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 15,
+                                                color: const Color(0xFF1A1A1A),
+                                                letterSpacing: 0.4,
                                               ),
                                             ),
                                             const SizedBox(height: 4),
@@ -611,36 +692,69 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                                 ),
                               ],
                             ),
-                            // View certificate button for approved applications with certificate
-                            if (app.status.toLowerCase() == 'approved' &&
-                                app.certificateUrl != null &&
-                                app.certificateUrl!.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: SizedBox(
-                                  width: double.infinity,
-                                  child: ElevatedButton.icon(
-                                    onPressed: () => _viewCertificateInApp(
-                                        app.certificateUrl!, app.serviceName),
-                                    icon: const Icon(Icons.remove_red_eye,
-                                        size: 18),
-                                    label: Text(AppLocalizations.of(context)
-                                        .get('view_certificate')),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Theme.of(context)
-                                              .extension<CustomColors>()
-                                              ?.success ??
-                                          const Color(0xFF4CAF50),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 10),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
+                            // Certificate buttons — shown whenever a certificate URL exists
+                            if (app.certificateUrl != null &&
+                                app.certificateUrl!.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              const Divider(height: 1, thickness: 1),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: () => _viewCertificateInApp(
+                                          app.certificateUrl!, app.serviceName),
+                                      icon: const Icon(Icons.remove_red_eye,
+                                          size: 16),
+                                      label: Text(AppLocalizations.of(context)
+                                          .get('view_certificate')),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor:
+                                            Theme.of(context).primaryColor,
+                                        side: BorderSide(
+                                            color:
+                                                Theme.of(context).primaryColor),
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 10),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _downloadCertificate(
+                                          context,
+                                          app.certificateUrl!,
+                                          app.serviceName),
+                                      icon:
+                                          const Icon(Icons.download, size: 16),
+                                      label: const Text(
+                                        'Download',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Theme.of(context)
+                                                .extension<CustomColors>()
+                                                ?.success ??
+                                            const Color(0xFF4CAF50),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 10),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
+                            ],
                           ],
                         ),
                       );
@@ -675,74 +789,71 @@ class _CertificateViewerScreenState extends State<_CertificateViewerScreen> {
   bool _isDownloading = false;
 
   Future<void> _downloadCertificate() async {
-    setState(() {
-      _isDownloading = true;
-    });
+    setState(() => _isDownloading = true);
 
     try {
-      // Request storage permission for Android
-      if (Platform.isAndroid) {
-        var status = await Permission.storage.status;
-        if (!status.isGranted) {
-          status = await Permission.storage.request();
-          if (!status.isGranted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(AppLocalizations.of(context)
-                      .get('storage_permission_required')),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
-            return;
-          }
+      final encodedUrl = Uri.encodeFull(widget.imageUrl);
+      print('📥 CERT URL: $encodedUrl');
+
+      // Determine save directory — try public Downloads first,
+      // fall back to app-specific external dir (always writable on all API levels)
+      Directory? dir;
+      try {
+        final downloads = Directory('/storage/emulated/0/Download');
+        if (!downloads.existsSync()) {
+          downloads.createSync(recursive: true);
         }
+        // Verify writable with a probe write
+        final probe = File('${downloads.path}/.writable_test');
+        probe.writeAsBytesSync([]);
+        probe.deleteSync();
+        dir = downloads;
+      } catch (_) {
+        dir = await getExternalStorageDirectory();
       }
+      dir ??= await getApplicationDocumentsDirectory();
 
-      // Download the image
-      final response = await http.get(Uri.parse(widget.imageUrl));
-      if (response.statusCode != 200) {
-        throw Exception('Failed to download certificate');
-      }
-
-      // Get the appropriate directory
-      Directory? directory;
-      if (Platform.isAndroid) {
-        // Use Downloads directory for Android
-        directory = Directory('/storage/emulated/0/Download');
-        if (!await directory.exists()) {
-          directory = await getExternalStorageDirectory();
-        }
-      } else {
-        // Use documents directory for iOS
-        directory = await getApplicationDocumentsDirectory();
-      }
-
-      if (directory == null) {
-        throw Exception('Could not access storage');
-      }
-
-      // Create filename with timestamp
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final extension = widget.imageUrl.split('.').last.split('?').first;
+      final extension =
+          widget.imageUrl.split('.').last.split('?').first.toLowerCase();
       final filename =
           'certificate_${widget.serviceName.replaceAll(' ', '_')}_$timestamp.$extension';
-      final filePath = '${directory.path}/$filename';
+      final filePath = '${dir.path}/$filename';
+      print('💾 Saving to: $filePath');
 
-      // Save the file
-      final file = File(filePath);
-      await file.writeAsBytes(response.bodyBytes);
+      await Dio().download(
+        encodedUrl,
+        filePath,
+        options: Options(
+          responseType: ResponseType.bytes,
+          followRedirects: true,
+          validateStatus: (status) => status! < 500,
+        ),
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                '${AppLocalizations.of(context).get('certificate_downloaded')}\n${AppLocalizations.of(context).get('saved_to')}: ${directory.path}'),
+                '${AppLocalizations.of(context).get('certificate_downloaded')}\nSaved to: $filePath'),
             backgroundColor: Colors.green,
-            duration: const Duration(seconds: 4),
+            duration: const Duration(seconds: 5),
           ),
         );
+      }
+
+      // Also register in the downloads list so the profile Downloads screen shows it
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList('downloaded_certificates') ?? [];
+      final entry = json.encode({
+        'url': widget.imageUrl,
+        'serviceName': widget.serviceName,
+        'downloadedAt':
+            DateFormat('dd MMM yyyy, hh:mm a').format(DateTime.now()),
+      });
+      if (!list.contains(entry)) {
+        list.add(entry);
+        await prefs.setStringList('downloaded_certificates', list);
       }
     } catch (e) {
       print('❌ Error downloading certificate: $e');
@@ -756,16 +867,16 @@ class _CertificateViewerScreenState extends State<_CertificateViewerScreen> {
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isDownloading = false;
-        });
-      }
+      if (mounted) setState(() => _isDownloading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final ext = widget.imageUrl.split('.').last.split('?').first.toLowerCase();
+    final isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(ext);
+    final isPdf = ext == 'pdf';
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -792,44 +903,170 @@ class _CertificateViewerScreenState extends State<_CertificateViewerScreen> {
           ),
         ],
       ),
-      body: Center(
-        child: InteractiveViewer(
-          panEnabled: true,
-          boundaryMargin: const EdgeInsets.all(20),
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Image.network(
-            widget.imageUrl,
-            fit: BoxFit.contain,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Center(
-                child: CircularProgressIndicator(
-                  value: loadingProgress.expectedTotalBytes != null
-                      ? loadingProgress.cumulativeBytesLoaded /
-                          loadingProgress.expectedTotalBytes!
-                      : null,
-                  color: Colors.white,
+      body: isImage
+          ? Center(
+              child: InteractiveViewer(
+                panEnabled: true,
+                boundaryMargin: const EdgeInsets.all(20),
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.network(
+                  widget.imageUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Center(
+                      child: CircularProgressIndicator(
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!
+                            : null,
+                        color: Colors.white,
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              color: Colors.red, size: 48),
+                          const SizedBox(height: 16),
+                          Text(
+                            AppLocalizations.of(context)
+                                .get('failed_to_load_cert'),
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-            errorBuilder: (context, error, stackTrace) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.error_outline,
-                        color: Colors.red, size: 48),
-                    const SizedBox(height: 16),
-                    Text(
-                      AppLocalizations.of(context).get('failed_to_load_cert'),
-                      style: const TextStyle(color: Colors.white),
+              ),
+            )
+          : isPdf
+              ? _PdfChromeTabView(url: widget.imageUrl)
+              : Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.insert_drive_file,
+                            color: Colors.white, size: 80),
+                        const SizedBox(height: 20),
+                        Text(
+                          widget.serviceName,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${ext.toUpperCase()} Document',
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 14),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Preview not available.\nUse the Download button above.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              );
-            },
+    );
+  }
+}
+
+// Opens a PDF URL in a Chrome Custom Tab (in-app experience, renders PDF).
+class _PdfChromeTabView extends StatefulWidget {
+  final String url;
+  const _PdfChromeTabView({required this.url});
+
+  @override
+  State<_PdfChromeTabView> createState() => _PdfChromeTabViewState();
+}
+
+class _PdfChromeTabViewState extends State<_PdfChromeTabView> {
+  bool _launching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Auto-open as soon as the screen is shown
+    WidgetsBinding.instance.addPostFrameCallback((_) => _open());
+  }
+
+  Future<void> _open() async {
+    if (_launching) return;
+    setState(() => _launching = true);
+    try {
+      final uri = Uri.parse(Uri.encodeFull(widget.url));
+      print('📄 Opening PDF: $uri');
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.inAppBrowserView,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open PDF. No compatible app found.'),
+            backgroundColor: Colors.red,
           ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error opening PDF: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _launching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.picture_as_pdf, color: Colors.white, size: 80),
+            const SizedBox(height: 24),
+            const Text(
+              'Opening PDF viewer…',
+              style: TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+            const SizedBox(height: 24),
+            if (_launching)
+              const CircularProgressIndicator(color: Colors.white)
+            else
+              ElevatedButton.icon(
+                onPressed: _open,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Open Again'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4C4CFF),
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+          ],
         ),
       ),
     );
