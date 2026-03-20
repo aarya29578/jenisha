@@ -61,7 +61,7 @@ interface Appointment {
 interface AppointmentField {
   id: string;
   label: string;
-  type: 'text' | 'number' | 'date';
+  type: 'text' | 'dob' | 'address' | 'mobile' | 'appointment' | 'time_range' | 'image' | 'pdf' | 'document' | 'template';
   required: boolean;
 }
 
@@ -579,8 +579,15 @@ export default function AppointmentManagement() {
                             className="w-full px-3 py-2 bg-[#0a0f1a] border border-[#1a2030] rounded-lg text-gray-100 text-sm focus:outline-none focus:border-[#243BFF]"
                           >
                             <option value="text">Text</option>
-                            <option value="number">Number</option>
-                            <option value="date">Date</option>
+                            <option value="dob">Date of Birth</option>
+                            <option value="address">Address</option>
+                            <option value="mobile">Mobile Number</option>
+                            <option value="appointment">Appointment</option>
+                            <option value="time_range">Time Period</option>
+                            <option value="image">Image Upload</option>
+                            <option value="pdf">PDF Upload</option>
+                            <option value="document">Doc Upload</option>
+                            <option value="template">Template Upload</option>
                           </select>
                         </div>
                         <div className="flex items-end gap-3">

@@ -29,6 +29,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
 
   String _serviceId = '';
   String _serviceName = '';
+  String _serviceLogoUrl = '';
 
   // Dynamic fields from admin panel
   List<Map<String, dynamic>> _dynamicFields = [];
@@ -70,6 +71,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     if (args is Map<String, dynamic>) {
       _serviceId = args['serviceId'] ?? '';
       _serviceName = args['serviceName'] ?? 'Service';
+      _serviceLogoUrl = (args['logoUrl'] as String? ?? '').trim();
       print('✅ ServiceFormScreen initialized:');
       print('   serviceId: "$_serviceId"');
       print('   serviceName: "$_serviceName"');
@@ -919,6 +921,39 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                             ),
                           )
                         else ...[
+                          // ── Service image ─────────────────────────────────────────
+                          if (_serviceLogoUrl.isNotEmpty) ...[
+                            Center(
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 20),
+                                width: 100,
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  color: Colors.grey.shade100,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.08),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Image.network(
+                                    _serviceLogoUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.image_not_supported_outlined,
+                                      size: 40,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                           // 📄 Download Form Template card — always show when template exists
                           if (_formTemplateUrl.isNotEmpty &&
                               _formTemplateUrl != 'None') ...[

@@ -624,6 +624,7 @@ class _IdPasswordSheetState extends State<_IdPasswordSheet> {
   bool _isLoading = false;
   bool _obscurePass = true;
   bool _obscureConfirm = true;
+  String? _passwordError;
 
   @override
   void dispose() {
@@ -754,10 +755,17 @@ class _IdPasswordSheetState extends State<_IdPasswordSheet> {
           msg = 'This ID is already registered. Use "Old User" to sign in.';
           break;
         case 'user-not-found':
+          msg = 'No account found for this ID. Please register first.';
+          break;
         case 'wrong-password':
         case 'invalid-credential':
-          msg = 'Invalid ID or password.';
-          break;
+          if (mounted) {
+            setState(() {
+              _passwordError = 'Incorrect password. Please try again.';
+              _isLoading = false;
+            });
+          }
+          return;
         case 'weak-password':
           msg = 'Password is too weak. Use at least 6 characters.';
           break;
@@ -881,6 +889,9 @@ class _IdPasswordSheetState extends State<_IdPasswordSheet> {
           obscureText: _obscurePass,
           textInputAction: isNew ? TextInputAction.next : TextInputAction.done,
           onSubmitted: isNew ? null : (_) => _handleSubmit(),
+          onChanged: (_) {
+            if (_passwordError != null) setState(() => _passwordError = null);
+          },
           decoration: _inputDeco(
             hint: 'Enter password (min 6 chars)',
             icon: Icons.lock_outline,
@@ -896,6 +907,20 @@ class _IdPasswordSheetState extends State<_IdPasswordSheet> {
             ),
           ),
         ),
+        if (_passwordError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(
+              children: [
+                const Icon(Icons.error_outline, size: 14, color: Colors.red),
+                const SizedBox(width: 4),
+                Text(
+                  _passwordError!,
+                  style: const TextStyle(fontSize: 12, color: Colors.red),
+                ),
+              ],
+            ),
+          ),
         if (isNew) ...[
           const SizedBox(height: 16),
           _label('Confirm Password'),

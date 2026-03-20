@@ -18,6 +18,7 @@ import {
   where,
   onSnapshot,
   updateDoc,
+  deleteDoc,
   doc,
   serverTimestamp,
   Firestore,
@@ -226,6 +227,18 @@ export const userApprovalService = {
       console.log(`✅ User ${uid} approved by ${adminEmail}`);
     } catch (error) {
       console.error('❌ Error approving user:', error);
+      throw error;
+    }
+  },
+
+  // Delete a user document
+  deleteAgent: async (uid: string) => {
+    try {
+      const userRef = doc(firestore, 'users', uid);
+      await deleteDoc(userRef);
+      console.log(`✅ User ${uid} deleted`);
+    } catch (error) {
+      console.error('❌ Error deleting user:', error);
       throw error;
     }
   },

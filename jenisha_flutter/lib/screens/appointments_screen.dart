@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import '../theme/app_theme.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -522,6 +526,14 @@ class _BookingFormSheetState extends State<_BookingFormSheet> {
   final Map<String, String> _formAnswers = {};
   String? _formError;
 
+  // Extra state for typed fields in the dynamic form
+  final Map<String, DateTime> _fieldDates = {}; // dob / appointment date
+  final Map<String, TimeOfDay> _fieldTimes =
+      {}; // appointment time / time_range end
+  final Map<String, TimeOfDay> _fieldStartTimes = {}; // time_range start
+  final Map<String, String> _fieldFileNames = {}; // picked file display name
+  final Map<String, File?> _fieldFiles = {}; // picked file object
+
   DateTime? _selectedDate;
   String? _selectedTime;
   bool _submitting = false;
@@ -544,15 +556,39 @@ class _BookingFormSheetState extends State<_BookingFormSheet> {
     '05:00 PM',
   ];
 
-  // ── Dynamic form ──────────────────────────────────────────────────────
-
   void _validateAndProceed() {
     for (final field in widget.fields) {
       if (!field.required) continue;
-      final val = (_formAnswers[field.id] ?? '').trim();
-      if (val.isEmpty) {
-        setState(() => _formError = '${field.label} is required');
-        return;
+      final type = field.type;
+      // File-based types: check _fieldFiles
+      if (['image', 'pdf', 'document', 'template'].contains(type)) {
+        if (_fieldFiles[field.id] == null) {
+          setState(() => _formError = '${field.label} is required');
+          return;
+        }
+      } else if (type == 'dob' || type == 'appointment') {
+        if (_fieldDates[field.id] == null) {
+          setState(() => _formError = '${field.label} is required');
+          return;
+        }
+        if (type == 'appointment' && _fieldTimes[field.id] == null) {
+          setState(
+              () => _formError = 'Please select a time for ${field.label}');
+          return;
+        }
+      } else if (type == 'time_range') {
+        if (_fieldStartTimes[field.id] == null ||
+            _fieldTimes[field.id] == null) {
+          setState(
+              () => _formError = '${field.label} start/end time is required');
+          return;
+        }
+      } else {
+        final val = (_formAnswers[field.id] ?? '').trim();
+        if (val.isEmpty) {
+          setState(() => _formError = '${field.label} is required');
+          return;
+        }
       }
     }
     setState(() {
@@ -561,13 +597,41 @@ class _BookingFormSheetState extends State<_BookingFormSheet> {
     });
   }
 
+  // ── Helpers to build the formatted answer strings ─────────────────────────
+
+  void _buildAnswersFromState() {
+    for (final field in widget.fields) {
+      final type = field.type;
+      if (type == 'dob') {
+        final d = _fieldDates[field.id];
+        if (d != null)
+          _formAnswers[field.id] = DateFormat('dd/MM/yyyy').format(d);
+      } else if (type == 'appointment') {
+        final d = _fieldDates[field.id];
+        final t = _fieldTimes[field.id];
+        if (d != null && t != null) {
+          _formAnswers[field.id] =
+              '${DateFormat('dd MMM yyyy').format(d)} ${t.format(context)}';
+        }
+      } else if (type == 'time_range') {
+        final start = _fieldStartTimes[field.id];
+        final end = _fieldTimes[field.id];
+        if (start != null && end != null) {
+          _formAnswers[field.id] =
+              '${start.format(context)} – ${end.format(context)}';
+        }
+      } else if (['image', 'pdf', 'document', 'template'].contains(type)) {
+        _formAnswers[field.id] = _fieldFileNames[field.id] ?? '';
+      }
+    }
+  }
+
   Widget _buildDynamicForm() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         ...widget.fields.map((field) {
-          final value = _formAnswers[field.id] ?? '';
           return Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: Column(
@@ -582,77 +646,7 @@ class _BookingFormSheetState extends State<_BookingFormSheet> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                if (field.type == 'dropdown')
-                  DropdownButtonFormField<String>(
-                    value: value.isEmpty ? null : value,
-                    decoration: InputDecoration(
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                    ),
-                    hint: const Text('Select an option'),
-                    items: field.options
-                        .map((o) => DropdownMenuItem(value: o, child: Text(o)))
-                        .toList(),
-                    onChanged: (v) =>
-                        setState(() => _formAnswers[field.id] = v ?? ''),
-                  )
-                else if (field.type == 'date')
-                  InkWell(
-                    onTap: () async {
-                      final now = DateTime.now();
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: now,
-                        firstDate: DateTime(1900),
-                        lastDate: DateTime(2100),
-                      );
-                      if (picked != null) {
-                        setState(() => _formAnswers[field.id] =
-                            DateFormat('dd MMM yyyy').format(picked));
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 14),
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: value.isNotEmpty
-                              ? AppTheme.primaryBlue
-                              : AppTheme.borderColor,
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        value.isEmpty ? 'Tap to select date' : value,
-                        style: TextStyle(
-                          color: value.isEmpty
-                              ? AppTheme.textTertiary
-                              : AppTheme.textPrimary,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  TextFormField(
-                    initialValue: value,
-                    keyboardType: field.type == 'number'
-                        ? TextInputType.number
-                        : TextInputType.text,
-                    onChanged: (v) =>
-                        setState(() => _formAnswers[field.id] = v),
-                    decoration: InputDecoration(
-                      hintText: field.label,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                    ),
-                  ),
+                _buildFieldWidget(field),
               ],
             ),
           );
@@ -669,7 +663,10 @@ class _BookingFormSheetState extends State<_BookingFormSheet> {
           width: double.infinity,
           height: 48,
           child: ElevatedButton(
-            onPressed: _validateAndProceed,
+            onPressed: () {
+              _buildAnswersFromState();
+              _validateAndProceed();
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.primaryBlue,
               foregroundColor: Colors.white,
@@ -684,6 +681,421 @@ class _BookingFormSheetState extends State<_BookingFormSheet> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildFieldWidget(_AppointmentField field) {
+    final type = field.type;
+
+    // ── Date of Birth ─────────────────────────────────────────────────
+    if (type == 'dob') {
+      final picked = _fieldDates[field.id];
+      return _datePickerTile(
+        label: picked != null
+            ? DateFormat('dd MMM yyyy').format(picked)
+            : 'Select date of birth',
+        hasValue: picked != null,
+        onTap: () async {
+          final d = await showDatePicker(
+            context: context,
+            initialDate: picked ?? DateTime(2000),
+            firstDate: DateTime(1900),
+            lastDate: DateTime.now(),
+          );
+          if (d != null) setState(() => _fieldDates[field.id] = d);
+        },
+      );
+    }
+
+    // ── Appointment (date + time) ─────────────────────────────────────
+    if (type == 'appointment') {
+      final pickedDate = _fieldDates[field.id];
+      final pickedTime = _fieldTimes[field.id];
+      return Column(
+        children: [
+          _datePickerTile(
+            label: pickedDate != null
+                ? DateFormat('dd MMM yyyy').format(pickedDate)
+                : 'Select date',
+            hasValue: pickedDate != null,
+            onTap: () async {
+              final now = DateTime.now();
+              final d = await showDatePicker(
+                context: context,
+                initialDate: pickedDate ?? now.add(const Duration(days: 1)),
+                firstDate: now,
+                lastDate: now.add(const Duration(days: 365)),
+              );
+              if (d != null) setState(() => _fieldDates[field.id] = d);
+            },
+          ),
+          const SizedBox(height: 8),
+          _timePickerTile(
+            label:
+                pickedTime != null ? pickedTime.format(context) : 'Select time',
+            hasValue: pickedTime != null,
+            onTap: () async {
+              final t = await showTimePicker(
+                context: context,
+                initialTime: pickedTime ?? TimeOfDay.now(),
+              );
+              if (t != null) setState(() => _fieldTimes[field.id] = t);
+            },
+          ),
+        ],
+      );
+    }
+
+    // ── Time Period (start → end) ─────────────────────────────────────
+    if (type == 'time_range') {
+      final start = _fieldStartTimes[field.id];
+      final end = _fieldTimes[field.id];
+      return Row(
+        children: [
+          Expanded(
+            child: _timePickerTile(
+              label: start != null ? start.format(context) : 'Start time',
+              hasValue: start != null,
+              onTap: () async {
+                final t = await showTimePicker(
+                    context: context,
+                    initialTime: start ?? const TimeOfDay(hour: 9, minute: 0));
+                if (t != null) setState(() => _fieldStartTimes[field.id] = t);
+              },
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Text('–',
+                style: TextStyle(fontSize: 18, color: AppTheme.textSecondary)),
+          ),
+          Expanded(
+            child: _timePickerTile(
+              label: end != null ? end.format(context) : 'End time',
+              hasValue: end != null,
+              onTap: () async {
+                final t = await showTimePicker(
+                    context: context,
+                    initialTime: end ?? const TimeOfDay(hour: 10, minute: 0));
+                if (t != null) setState(() => _fieldTimes[field.id] = t);
+              },
+            ),
+          ),
+        ],
+      );
+    }
+
+    // ── Image Upload ──────────────────────────────────────────────────
+    if (type == 'image') {
+      return _fileTile(
+        fieldId: field.id,
+        label: 'Upload Image',
+        icon: Icons.image_outlined,
+        acceptedFormats: 'JPG, PNG, etc.',
+        onTap: () async {
+          final img = await ImagePicker()
+              .pickImage(source: ImageSource.gallery, imageQuality: 85);
+          if (img != null) {
+            setState(() {
+              _fieldFiles[field.id] = File(img.path);
+              _fieldFileNames[field.id] = img.name;
+            });
+          }
+        },
+      );
+    }
+
+    // ── PDF Upload ────────────────────────────────────────────────────
+    if (type == 'pdf') {
+      return _fileTile(
+        fieldId: field.id,
+        label: 'Upload PDF',
+        icon: Icons.picture_as_pdf_outlined,
+        acceptedFormats: 'PDF only',
+        onTap: () async {
+          final result = await FilePicker.platform
+              .pickFiles(type: FileType.custom, allowedExtensions: ['pdf']);
+          if (result != null && result.files.single.path != null) {
+            setState(() {
+              _fieldFiles[field.id] = File(result.files.single.path!);
+              _fieldFileNames[field.id] = result.files.single.name;
+            });
+          }
+        },
+      );
+    }
+
+    // ── Document Upload ───────────────────────────────────────────────
+    if (type == 'document') {
+      return _fileTile(
+        fieldId: field.id,
+        label: 'Upload Document',
+        icon: Icons.insert_drive_file_outlined,
+        acceptedFormats: 'PDF, DOC, DOCX',
+        onTap: () async {
+          final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom, allowedExtensions: ['pdf', 'doc', 'docx']);
+          if (result != null && result.files.single.path != null) {
+            setState(() {
+              _fieldFiles[field.id] = File(result.files.single.path!);
+              _fieldFileNames[field.id] = result.files.single.name;
+            });
+          }
+        },
+      );
+    }
+
+    // ── Template Upload ───────────────────────────────────────────────
+    if (type == 'template') {
+      return _fileTile(
+        fieldId: field.id,
+        label: 'Upload Template',
+        icon: Icons.upload_file_outlined,
+        acceptedFormats: 'PDF, DOC, DOCX, XLS',
+        onTap: () async {
+          final result = await FilePicker.platform.pickFiles(
+              type: FileType.custom,
+              allowedExtensions: ['pdf', 'doc', 'docx', 'xls', 'xlsx']);
+          if (result != null && result.files.single.path != null) {
+            setState(() {
+              _fieldFiles[field.id] = File(result.files.single.path!);
+              _fieldFileNames[field.id] = result.files.single.name;
+            });
+          }
+        },
+      );
+    }
+
+    // ── Address ───────────────────────────────────────────────────────
+    if (type == 'address') {
+      return TextFormField(
+        initialValue: _formAnswers[field.id] ?? '',
+        maxLines: 3,
+        keyboardType: TextInputType.streetAddress,
+        onChanged: (v) => setState(() => _formAnswers[field.id] = v),
+        decoration: InputDecoration(
+          hintText: 'Enter full address',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          prefixIcon: const Icon(Icons.location_on_outlined, size: 20),
+        ),
+      );
+    }
+
+    // ── Mobile Number ─────────────────────────────────────────────────
+    if (type == 'mobile') {
+      return TextFormField(
+        initialValue: _formAnswers[field.id] ?? '',
+        keyboardType: TextInputType.phone,
+        maxLength: 10,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        onChanged: (v) => setState(() => _formAnswers[field.id] = v),
+        decoration: InputDecoration(
+          hintText: '10-digit mobile number',
+          counterText: '',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          prefixIcon: const Icon(Icons.phone_outlined, size: 20),
+        ),
+      );
+    }
+
+    // ── Dropdown ──────────────────────────────────────────────────────
+    if (type == 'dropdown') {
+      final value = _formAnswers[field.id] ?? '';
+      return DropdownButtonFormField<String>(
+        value: value.isEmpty ? null : value,
+        decoration: InputDecoration(
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        ),
+        hint: const Text('Select an option'),
+        items: field.options
+            .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+            .toList(),
+        onChanged: (v) => setState(() => _formAnswers[field.id] = v ?? ''),
+      );
+    }
+
+    // ── Date ──────────────────────────────────────────────────────────
+    if (type == 'date') {
+      final picked = _fieldDates[field.id];
+      return _datePickerTile(
+        label: picked != null
+            ? DateFormat('dd MMM yyyy').format(picked)
+            : 'Tap to select date',
+        hasValue: picked != null,
+        onTap: () async {
+          final now = DateTime.now();
+          final d = await showDatePicker(
+            context: context,
+            initialDate: picked ?? now,
+            firstDate: DateTime(1900),
+            lastDate: DateTime(2100),
+          );
+          if (d != null) {
+            setState(() {
+              _fieldDates[field.id] = d;
+              _formAnswers[field.id] = DateFormat('dd MMM yyyy').format(d);
+            });
+          }
+        },
+      );
+    }
+
+    // ── Default: text / number ────────────────────────────────────────
+    return TextFormField(
+      initialValue: _formAnswers[field.id] ?? '',
+      keyboardType:
+          type == 'number' ? TextInputType.number : TextInputType.text,
+      onChanged: (v) => setState(() => _formAnswers[field.id] = v),
+      decoration: InputDecoration(
+        hintText: field.label,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+    );
+  }
+
+  // ── Reusable UI tiles ─────────────────────────────────────────────────────
+
+  Widget _datePickerTile({
+    required String label,
+    required bool hasValue,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: hasValue ? AppTheme.primaryBlue : AppTheme.borderColor,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.calendar_today,
+                size: 18,
+                color: hasValue ? AppTheme.primaryBlue : AppTheme.textTertiary),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: hasValue ? AppTheme.textPrimary : AppTheme.textTertiary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _timePickerTile({
+    required String label,
+    required bool hasValue,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: hasValue ? AppTheme.primaryBlue : AppTheme.borderColor,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.access_time,
+                size: 18,
+                color: hasValue ? AppTheme.primaryBlue : AppTheme.textTertiary),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                color: hasValue ? AppTheme.textPrimary : AppTheme.textTertiary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _fileTile({
+    required String fieldId,
+    required String label,
+    required IconData icon,
+    required String acceptedFormats,
+    required VoidCallback onTap,
+  }) {
+    final fileName = _fieldFileNames[fieldId];
+    final hasFile = fileName != null;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: hasFile
+              ? AppTheme.primaryBlue.withOpacity(0.05)
+              : Colors.grey.shade50,
+          border: Border.all(
+            color: hasFile ? AppTheme.primaryBlue : AppTheme.borderColor,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(hasFile ? Icons.check_circle_outline : icon,
+                size: 22,
+                color: hasFile ? AppTheme.primaryBlue : AppTheme.textTertiary),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    hasFile ? fileName : label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: hasFile
+                          ? AppTheme.textPrimary
+                          : AppTheme.textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (!hasFile)
+                    Text(
+                      acceptedFormats,
+                      style: const TextStyle(
+                          fontSize: 11, color: AppTheme.textTertiary),
+                    ),
+                ],
+              ),
+            ),
+            Icon(
+              hasFile ? Icons.edit_outlined : Icons.upload_outlined,
+              size: 18,
+              color: AppTheme.textTertiary,
+            ),
+          ],
+        ),
+      ),
     );
   }
 

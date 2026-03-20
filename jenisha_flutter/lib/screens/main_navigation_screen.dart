@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
@@ -29,6 +32,28 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   late int _currentIndex;
+  StreamSubscription<DocumentSnapshot>? _userDocSub;
+
+  /// Watch the current user's Firestore document. If admin deletes it,
+  /// sign out and redirect to the login screen.
+  void _listenForAccountDeletion() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    _userDocSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((snap) async {
+      if (!snap.exists) {
+        // Account was deleted by admin — sign out and go to login
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true)
+              .pushNamedAndRemoveUntil('/login', (route) => false);
+        }
+      }
+    });
+  }
 
   /// One dedicated navigator key per tab – preserves the full route stack
   /// independently for each tab while the app runs.
@@ -50,6 +75,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+    _listenForAccountDeletion();
+  }
+
+  @override
+  void dispose() {
+    _userDocSub?.cancel();
+    super.dispose();
   }
 
   // -----------------------------------------------------------------------

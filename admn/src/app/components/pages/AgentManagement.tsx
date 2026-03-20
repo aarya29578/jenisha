@@ -1,13 +1,29 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Eye, UserCheck, UserX, Ban } from 'lucide-react';
-import { pendingUsersService, UserData } from '@/services/firebaseService';
+import { Search, Eye, UserCheck, UserX, Ban, Trash2 } from 'lucide-react';
+import { pendingUsersService, UserData, userApprovalService } from '@/services/firebaseService';
 
 export default function AgentManagement() {
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
   const [loading, setLoading] = useState(true);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteAgent = async () => {
+    if (!deleteConfirmId) return;
+    setDeleting(true);
+    try {
+      await userApprovalService.deleteAgent(deleteConfirmId);
+      setDeleteConfirmId(null);
+    } catch (err) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -180,6 +196,13 @@ export default function AgentManagement() {
                           <UserX className="w-4 h-4" />
                         </button>
                       )}
+                      <button
+                          onClick={() => { setDeleteConfirmId(agent.id); setDeleteConfirmName(agent.name); }}
+                          className="p-2 text-red-400 hover:bg-red-900/30 rounded transition-colors"
+                          title="Delete Agent"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                     </div>
                   </td>
                 </tr>
@@ -195,6 +218,41 @@ export default function AgentManagement() {
         )}
       </div>
         </>
+      )}
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#0d1320] border border-[#1a2030] rounded-xl p-6 w-full max-w-sm shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-100">Delete Agent</h3>
+                <p className="text-xs text-gray-400">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-300 mb-6">
+              Are you sure you want to delete <span className="font-semibold text-white">{deleteConfirmName}</span>? Their account and all associated data will be permanently removed.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 rounded border border-[#1a2030] text-gray-300 hover:bg-[#111827] transition-colors text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAgent}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm font-medium transition-colors disabled:opacity-60"
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

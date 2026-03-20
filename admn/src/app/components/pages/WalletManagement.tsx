@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Wallet, Plus, History, AlertCircle, Search, X, TrendingUp } from 'lucide-react';
+import { Wallet, Plus, Minus, History, AlertCircle, Search, X, TrendingUp } from 'lucide-react';
 import {
   getFirestore,
   collection,
@@ -54,15 +54,16 @@ const formatDate = (timestamp: Timestamp | null | undefined) => {
   return timestamp.toDate().toLocaleString('en-IN');
 };
 
-// ── Recharge Modal ─────────────────────────────────────────────────────────────
+// ── Adjust Modal (Add / Subtract) ─────────────────────────────────────────────
 
-interface RechargeModalProps {
+interface AdjustModalProps {
   agent: AgentWallet;
   onClose: () => void;
-  onConfirm: (agentId: string, amount: number) => Promise<void>;
+  onConfirm: (agentId: string, amount: number, mode: 'add' | 'subtract') => Promise<void>;
 }
 
-function RechargeModal({ agent, onClose, onConfirm }: RechargeModalProps) {
+function AdjustModal({ agent, onClose, onConfirm }: AdjustModalProps) {
+  const [mode, setMode] = useState<'add' | 'subtract'>('add');
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -73,24 +74,59 @@ function RechargeModal({ agent, onClose, onConfirm }: RechargeModalProps) {
       setError('Please enter a valid amount greater than 0.');
       return;
     }
+    if (mode === 'subtract' && parsed > agent.balance) {
+      setError(`Cannot deduct more than current balance (₹${agent.balance.toLocaleString()}).`);
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      await onConfirm(agent.id, parsed);
+      await onConfirm(agent.id, parsed, mode);
       onClose();
     } catch {
-      setError('Recharge failed. Please try again.');
+      setError('Operation failed. Please try again.');
       setLoading(false);
     }
   };
+
+  const newBalance =
+    amount && !isNaN(parseFloat(amount))
+      ? mode === 'add'
+        ? agent.balance + parseFloat(amount)
+        : agent.balance - parseFloat(amount)
+      : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="bg-[#0a0f1a] border border-[#1a2130] rounded-lg w-full max-w-md p-6 shadow-xl">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg text-gray-100">Recharge Wallet</h2>
+          <h2 className="text-lg text-gray-100">Adjust Wallet Balance</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">
             <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Add / Subtract toggle */}
+        <div className="flex rounded overflow-hidden border border-[#1a2130] mb-5">
+          <button
+            onClick={() => { setMode('add'); setError(''); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+              mode === 'add'
+                ? 'bg-[#0f9d58] text-white'
+                : 'bg-[#0f1518] text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <Plus className="w-4 h-4" /> Add
+          </button>
+          <button
+            onClick={() => { setMode('subtract'); setError(''); }}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors ${
+              mode === 'subtract'
+                ? 'bg-[#e53935] text-white'
+                : 'bg-[#0f1518] text-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <Minus className="w-4 h-4" /> Subtract
           </button>
         </div>
 
@@ -108,7 +144,9 @@ function RechargeModal({ agent, onClose, onConfirm }: RechargeModalProps) {
             </div>
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Recharge Amount</label>
+            <label className="block text-xs text-gray-500 mb-1">
+              {mode === 'add' ? 'Amount to Add' : 'Amount to Subtract'}
+            </label>
             <input
               type="number"
               min="1"
@@ -120,6 +158,16 @@ function RechargeModal({ agent, onClose, onConfirm }: RechargeModalProps) {
             />
             {error && <p className="mt-1 text-xs text-[#fca5a5]">{error}</p>}
           </div>
+          {newBalance !== null && (
+            <div className="flex items-center gap-2 bg-[#0f1518] border border-[#1a2130] rounded px-3 py-2">
+              <span className="text-xs text-gray-500">New balance:</span>
+              <span className={`text-sm font-semibold ${
+                newBalance < 0 ? 'text-red-400' : 'text-[#4ade80]'
+              }`}>
+                ₹{newBalance.toLocaleString()}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3">
@@ -132,9 +180,11 @@ function RechargeModal({ agent, onClose, onConfirm }: RechargeModalProps) {
           <button
             onClick={handleConfirm}
             disabled={loading}
-            className="flex-1 px-4 py-2.5 bg-[#243BFF] text-white rounded hover:bg-[#1f33d6] transition-colors text-sm disabled:opacity-50"
+            className={`flex-1 px-4 py-2.5 text-white rounded transition-colors text-sm disabled:opacity-50 ${
+              mode === 'add' ? 'bg-[#0f9d58] hover:bg-[#0b8a4c]' : 'bg-[#e53935] hover:bg-[#c62828]'
+            }`}
           >
-            {loading ? 'Processing…' : 'Confirm Recharge'}
+            {loading ? 'Processing…' : mode === 'add' ? 'Add Amount' : 'Subtract Amount'}
           </button>
         </div>
       </div>
@@ -218,24 +268,23 @@ export default function WalletManagement() {
     );
   }, [agents, searchTerm]);
 
-  // ── Recharge handler ─────────────────────────────────────────────────────────
-  const handleRecharge = async (agentId: string, amount: number) => {
+  // ── Adjust handler (add or subtract) ───────────────────────────────────────
+  const handleRecharge = async (agentId: string, amount: number, mode: 'add' | 'subtract' = 'add') => {
     const agent = agents.find((a) => a.id === agentId)!;
     const currentAdmin = authService.getCurrentUser();
+    const delta = mode === 'subtract' ? -amount : amount;
 
-    // Update the agent's balance — this is the critical write.
     await updateDoc(doc(db, 'users', agentId), {
-      walletBalance: increment(amount),
+      walletBalance: increment(delta),
       lastRecharge: serverTimestamp(),
     });
 
-    // Log the transaction — best-effort, permission failure must not surface as an error.
     try {
       await addDoc(collection(db, 'wallet_transactions'), {
         agentId,
         agentName: agent.name,
         amount,
-        type: 'recharge',
+        type: mode === 'subtract' ? 'deduction' : 'recharge',
         createdAt: serverTimestamp(),
         adminId: currentAdmin?.uid ?? 'unknown',
       });
@@ -272,7 +321,7 @@ export default function WalletManagement() {
   return (
     <div className="space-y-6">
       {rechargeTarget && (
-        <RechargeModal
+        <AdjustModal
           agent={rechargeTarget}
           onClose={() => setRechargeTarget(null)}
           onConfirm={handleRecharge}
@@ -380,8 +429,8 @@ export default function WalletManagement() {
                         onClick={() => setRechargeTarget(agent)}
                         className="flex items-center gap-2 px-4 py-2 bg-[#243BFF] text-white rounded hover:bg-[#1f33d6] transition-colors text-sm"
                       >
-                        <Plus className="w-4 h-4" />
-                        Recharge
+                        <Wallet className="w-4 h-4" />
+                        Adjust
                       </button>
                     </td>
                   </tr>
@@ -450,6 +499,8 @@ export default function WalletManagement() {
                         className={`px-2 py-0.5 rounded text-xs capitalize ${
                           tx.type === 'commission'
                             ? 'bg-[#ede7f6] text-[#7b1fa2]'
+                            : tx.type === 'deduction'
+                            ? 'bg-[#ffebee] text-[#e53935]'
                             : 'bg-[#E8F5E9] text-[#4CAF50]'
                         }`}
                       >
@@ -457,8 +508,8 @@ export default function WalletManagement() {
                       </span>
                     </td>
                     <td className="px-5 py-4 text-sm font-medium">
-                      <span className={tx.type === 'commission' ? 'text-[#ce93d8]' : 'text-gray-100'}>
-                        +₹{tx.amount.toLocaleString()}
+                      <span className={tx.type === 'commission' ? 'text-[#ce93d8]' : tx.type === 'deduction' ? 'text-red-400' : 'text-gray-100'}>
+                        {tx.type === 'deduction' ? '-' : '+'}₹{tx.amount.toLocaleString()}
                       </span>
                       {tx.type === 'commission' && tx.commissionPercentage !== undefined && (
                         <span className="ml-1 text-xs text-gray-500">({tx.commissionPercentage}%)</span>

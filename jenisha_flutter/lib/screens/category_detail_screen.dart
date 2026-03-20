@@ -199,6 +199,7 @@ class CategoryDetailScreen extends StatelessWidget {
                                   arguments: {
                                     'serviceId': serviceId,
                                     'serviceName': serviceName,
+                                    'logoUrl': logoUrl,
                                   },
                                 );
                               },
@@ -270,7 +271,7 @@ class CategoryDetailScreen extends StatelessWidget {
                                                   : serviceName,
                                               style: const TextStyle(
                                                   fontSize: 14,
-                                                  fontWeight: FontWeight.w600,
+                                                  fontWeight: FontWeight.bold,
                                                   color: Color(0xFF111827))),
                                           const SizedBox(height: 4),
                                           Text(servicePrice,
