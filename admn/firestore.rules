@@ -60,6 +60,12 @@ service cloud.firestore {
       allow write: if isSuperAdmin();
     }
 
+    // ================= SIDE CATEGORIES =================
+    match /side_categories/{doc} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
     match /serviceCategories/{doc} {
       allow read: if true;
       allow write: if isSuperAdmin();

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, FolderTree, FileText, Briefcase, Home, Users, Settings, ShoppingCart, CreditCard, Package, Truck, Phone, Mail, Calendar, Clock, Star, Heart, Shield, Award, Gift, Zap, Activity, TrendingUp, DollarSign, File, Folder, Database, Server, Globe, Cloud, Key, Lock, Download, FileDown, X } from 'lucide-react';
-import { categoryService, serviceManagementService, ServiceCategory, Service } from '../../../services/categoryService';
+import { categoryService, serviceManagementService, sideCategoryService, ServiceCategory, SideCategory, Service } from '../../../services/categoryService';
 import CategoryDetail from './CategoryDetail';
 import { authService } from '@/services/authService';
 
@@ -61,13 +61,15 @@ export default function ServiceManagement() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showAddService, setShowAddService] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategorySideCategoryId, setNewCategorySideCategoryId] = useState('');
+  const [sideCategories, setSideCategories] = useState<SideCategory[]>([]);
   const [newServiceData, setNewServiceData] = useState({ name: '', categoryId: '', price: 0, redirectUrl: '' });
   const [loading, setLoading] = useState(true);
   const [selectedCategoryForService, setSelectedCategoryForService] = useState('');
   
   // Edit states
   const [showEditCategory, setShowEditCategory] = useState(false);
-  const [editCategoryData, setEditCategoryData] = useState<{ id: string; name: string; icon?: string; customLogoUrl?: string } | null>(null);
+  const [editCategoryData, setEditCategoryData] = useState<{ id: string; name: string; icon?: string; customLogoUrl?: string; sideCategoryId?: string } | null>(null);
   const [showEditService, setShowEditService] = useState(false);
   const [editServiceData, setEditServiceData] = useState<{ id: string; name: string; categoryId: string; price: number; logoUrl: string; redirectUrl: string; formTemplateUrl: string } | null>(null);
   
@@ -123,6 +125,14 @@ export default function ServiceManagement() {
   }, []);
 
   useEffect(() => {
+    const unsub = sideCategoryService.subscribeToSideCategories(
+      (items) => setSideCategories(items),
+      (err) => console.error('Side categories error:', err)
+    );
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = serviceManagementService.subscribeToAllServices(
       (svcs) => {
         // Filter to show only active services
@@ -139,7 +149,7 @@ export default function ServiceManagement() {
     if (newCategoryName.trim()) {
       try {
         // Create category first
-        const categoryId = await categoryService.addCategory(newCategoryName, selectedIcon);
+        const categoryId = await categoryService.addCategory(newCategoryName, selectedIcon, undefined, newCategorySideCategoryId || undefined);
         
         // Upload logo if file is selected
         if (customLogoFile) {
@@ -159,6 +169,7 @@ export default function ServiceManagement() {
         setSelectedIcon('FolderTree');
         setCustomLogoFile(null);
         setCustomLogoPreview(null);
+        setNewCategorySideCategoryId('');
         setShowAddCategory(false);
       } catch (error) {
         console.error('Error adding category:', error);
@@ -218,7 +229,8 @@ export default function ServiceManagement() {
         // Update category name and icon
         await categoryService.updateCategory(editCategoryData.id, {
           name: editCategoryData.name,
-          icon: editCategoryData.icon
+          icon: editCategoryData.icon,
+          sideCategoryId: editCategoryData.sideCategoryId || ''
         });
         
         // Handle logo upload/update if new file selected
@@ -466,7 +478,7 @@ export default function ServiceManagement() {
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
-                          setEditCategoryData({ id: category.id, name: category.name, icon: category.icon, customLogoUrl: category.customLogoUrl });
+                          setEditCategoryData({ id: category.id, name: category.name, icon: category.icon, customLogoUrl: category.customLogoUrl, sideCategoryId: category.sideCategoryId });
                           setShowEditCategory(true);
                         }}
                         className="p-1.5 text-[#243BFF] hover:bg-[#0f243b] rounded transition-colors"
@@ -522,6 +534,19 @@ export default function ServiceManagement() {
                     className="w-full px-4 py-2 border border-[#111318] rounded bg-[#071018] text-gray-100 focus:outline-none focus:border-[#243BFF]"
                     placeholder="Enter category name"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-100 mb-2">Side Category (Parent)</label>
+                  <select
+                    value={newCategorySideCategoryId}
+                    onChange={(e) => setNewCategorySideCategoryId(e.target.value)}
+                    className="w-full px-4 py-2 border border-[#111318] rounded bg-[#071018] text-gray-100 focus:outline-none focus:border-[#243BFF]"
+                  >
+                    <option value="">-- None --</option>
+                    {sideCategories.map((sc) => (
+                      <option key={sc.id} value={sc.id}>{sc.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm text-gray-100 mb-2">Select Icon</label>
@@ -620,6 +645,7 @@ export default function ServiceManagement() {
                       setShowAddCategory(false);
                       setNewCategoryName('');
                       setSelectedIcon('FolderTree');
+                      setNewCategorySideCategoryId('');
                       setCustomLogoFile(null);
                       setCustomLogoPreview(null);
                     }}
@@ -645,6 +671,19 @@ export default function ServiceManagement() {
                     className="w-full px-4 py-2 border border-[#111318] rounded bg-[#071018] text-gray-100 focus:outline-none focus:border-[#243BFF]"
                     placeholder="Enter category name"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-100 mb-2">Side Category (Parent)</label>
+                  <select
+                    value={editCategoryData.sideCategoryId || ''}
+                    onChange={(e) => setEditCategoryData({ ...editCategoryData, sideCategoryId: e.target.value })}
+                    className="w-full px-4 py-2 border border-[#111318] rounded bg-[#071018] text-gray-100 focus:outline-none focus:border-[#243BFF]"
+                  >
+                    <option value="">-- None --</option>
+                    {sideCategories.map((sc) => (
+                      <option key={sc.id} value={sc.id}>{sc.name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm text-gray-100 mb-2">Select Icon</label>

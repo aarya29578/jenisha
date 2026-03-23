@@ -52,7 +52,7 @@ class _ReferScreenState extends State<ReferScreen> {
         code = doc.data()!['referCode'] as String;
       } else {
         // Generate deterministic unique code and save it
-        code = 'REF${user.uid.substring(0, 8).toUpperCase()}';
+        code = 'JENISHA${user.uid.substring(0, 8).toUpperCase()}';
         try {
           await docRef.set({'referCode': code}, SetOptions(merge: true));
         } catch (_) {}

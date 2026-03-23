@@ -20,11 +20,13 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final FirestoreService _firestoreService = FirestoreService();
   final TextEditingController _searchController = TextEditingController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String? _userStatus = 'pending';
   List<Map<String, dynamic>> _userDocuments = [];
   bool _statusLoaded = false;
   String _searchQuery = '';
   String? _profilePhotoUrl;
+  String? _selectedCategoryId; // null = show all
 
   @override
   void initState() {
@@ -166,27 +168,30 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return Scaffold(
+      key: _scaffoldKey,
       resizeToAvoidBottomInset: false,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      drawer: _buildDrawer(context),
       appBar: AppBar(
         backgroundColor: Theme.of(context).primaryColor,
         elevation: 0,
         titleSpacing: 0,
         automaticallyImplyLeading: false,
-        title: Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0),
-            child: Text(
-              AppLocalizations.of(context).translate('app_title'),
-              textAlign: TextAlign.left,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w600,
-              ),
+        leading: IconButton(
+          icon: const Icon(Icons.menu, color: Colors.white, size: 26),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          tooltip: 'Menu',
+        ),
+        title: Padding(
+          padding: const EdgeInsets.only(left: 4.0),
+          child: Text(
+            AppLocalizations.of(context).translate('app_title'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 22,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ),
@@ -285,6 +290,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
+            // Horizontal Category Chips
+            _buildCategoryChips(),
+
             // Banner Slider Section
             StreamBuilder<List<Map<String, dynamic>>>(
               stream: _firestoreService.getActiveBannersStream(),
@@ -370,23 +378,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   final categories = snapshot.data ?? [];
 
-                  // Apply search filter
-                  final filteredCategories = _searchQuery.isEmpty
-                      ? categories
-                      : categories.where((category) {
-                          final languageProvider =
-                              Provider.of<LanguageProvider>(context,
-                                  listen: false);
-                          final categoryName =
-                              FirestoreHelper.getLocalizedFieldWithLanguage(
-                            category,
-                            'name',
-                            languageProvider.languageCode,
-                          );
-                          return categoryName
-                              .toLowerCase()
-                              .contains(_searchQuery);
-                        }).toList();
+                  // Apply search filter + category chip filter
+                  final filteredCategories = categories.where((category) {
+                    // Category chip filter
+                    if (_selectedCategoryId != null &&
+                        category['id'] != _selectedCategoryId) {
+                      return false;
+                    }
+                    if (_searchQuery.isEmpty) return true;
+                    final languageProvider =
+                        Provider.of<LanguageProvider>(context, listen: false);
+                    final categoryName =
+                        FirestoreHelper.getLocalizedFieldWithLanguage(
+                      category,
+                      'name',
+                      languageProvider.languageCode,
+                    );
+                    return categoryName.toLowerCase().contains(_searchQuery);
+                  }).toList();
 
                   if (filteredCategories.isEmpty) {
                     return SizedBox(
@@ -594,6 +603,401 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // ── Drawer — shows side_categories (parent) ────────────────────────────────
+  Widget _buildDrawer(BuildContext context) {
+    final primaryColor = Theme.of(context).primaryColor;
+    return Drawer(
+      child: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _firestoreService.getActiveSideCategoriesStream(),
+        builder: (context, snapshot) {
+          final sideCategories = snapshot.data ?? [];
+          final languageProvider =
+              Provider.of<LanguageProvider>(context, listen: false);
+
+          return Column(
+            children: [
+              // ── Header ───────────────────────────────────────────
+              Container(
+                width: double.infinity,
+                color: primaryColor,
+                padding: EdgeInsets.only(
+                  top: MediaQuery.of(context).padding.top + 16,
+                  left: 20,
+                  right: 20,
+                  bottom: 20,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.25),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.5), width: 2),
+                      ),
+                      child: const Icon(Icons.storefront,
+                          color: Colors.white, size: 30),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Jenisha Online Service',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Browse Categories',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.8),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // ── "All" tile ────────────────────────────────────────
+              ListTile(
+                leading: CircleAvatar(
+                  radius: 18,
+                  backgroundColor: _selectedCategoryId == null
+                      ? primaryColor
+                      : Colors.grey.shade200,
+                  child: Icon(Icons.apps,
+                      size: 18,
+                      color: _selectedCategoryId == null
+                          ? Colors.white
+                          : Colors.grey.shade600),
+                ),
+                title: Text(
+                  'All Services',
+                  style: TextStyle(
+                    fontWeight: _selectedCategoryId == null
+                        ? FontWeight.w700
+                        : FontWeight.normal,
+                    color: _selectedCategoryId == null
+                        ? primaryColor
+                        : Colors.black87,
+                  ),
+                ),
+                selected: _selectedCategoryId == null,
+                selectedTileColor: primaryColor.withOpacity(0.06),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                onTap: () {
+                  setState(() => _selectedCategoryId = null);
+                  Navigator.pop(context);
+                },
+              ),
+
+              const Divider(height: 1, indent: 16, endIndent: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                child: Text(
+                  'CATEGORIES',
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.2,
+                      color: Colors.grey.shade500),
+                ),
+              ),
+
+              // ── Side category list ────────────────────────────────
+              Expanded(
+                child: snapshot.connectionState == ConnectionState.waiting &&
+                        sideCategories.isEmpty
+                    ? Center(
+                        child: CircularProgressIndicator(color: primaryColor))
+                    : sideCategories.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text('No categories configured.',
+                                style: TextStyle(
+                                    color: Colors.grey.shade500, fontSize: 13)),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            itemCount: sideCategories.length,
+                            itemBuilder: (context, index) {
+                              final sc = sideCategories[index];
+                              final scId = sc['id'] as String;
+                              final scName =
+                                  FirestoreHelper.getLocalizedFieldWithLanguage(
+                                sc,
+                                'name',
+                                languageProvider.languageCode,
+                              );
+                              final logoUrl =
+                                  (sc['customLogoUrl']?.toString() ?? '')
+                                      .trim();
+
+                              return StreamBuilder<List<Map<String, dynamic>>>(
+                                stream: _firestoreService
+                                    .getCategoriesBySideCategory(scId),
+                                builder: (context, childSnap) {
+                                  final children = childSnap.data ?? [];
+                                  return Theme(
+                                    data: Theme.of(context).copyWith(
+                                      dividerColor: Colors.transparent,
+                                    ),
+                                    child: ExpansionTile(
+                                      tilePadding: const EdgeInsets.symmetric(
+                                          horizontal: 16, vertical: 2),
+                                      childrenPadding: EdgeInsets.zero,
+                                      leading: CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor:
+                                            primaryColor.withOpacity(0.12),
+                                        child: logoUrl.isNotEmpty
+                                            ? ClipOval(
+                                                child: Image.network(
+                                                  logoUrl,
+                                                  width: 36,
+                                                  height: 36,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, __, ___) =>
+                                                      Icon(
+                                                    Icons.folder_outlined,
+                                                    size: 18,
+                                                    color: primaryColor,
+                                                  ),
+                                                ),
+                                              )
+                                            : Icon(Icons.folder_outlined,
+                                                size: 18, color: primaryColor),
+                                      ),
+                                      title: Text(
+                                        scName.isEmpty ? 'Category' : scName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      iconColor: primaryColor,
+                                      collapsedIconColor: Colors.grey,
+                                      children: children.isEmpty
+                                          ? [
+                                              Padding(
+                                                padding:
+                                                    const EdgeInsets.fromLTRB(
+                                                        56, 4, 16, 8),
+                                                child: Text(
+                                                  'No categories yet',
+                                                  style: TextStyle(
+                                                      fontSize: 12,
+                                                      color:
+                                                          Colors.grey.shade400),
+                                                ),
+                                              ),
+                                            ]
+                                          : children.map((cat) {
+                                              final catId = cat['id'] as String;
+                                              final catName = FirestoreHelper
+                                                  .getLocalizedFieldWithLanguage(
+                                                cat,
+                                                'name',
+                                                languageProvider.languageCode,
+                                              );
+                                              final catLogo =
+                                                  (cat['customLogoUrl']
+                                                              ?.toString() ??
+                                                          '')
+                                                      .trim();
+                                              return ListTile(
+                                                contentPadding:
+                                                    const EdgeInsets.only(
+                                                        left: 56, right: 16),
+                                                leading: catLogo.isNotEmpty
+                                                    ? ClipRRect(
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(6),
+                                                        child: Image.network(
+                                                          catLogo,
+                                                          width: 28,
+                                                          height: 28,
+                                                          fit: BoxFit.cover,
+                                                          errorBuilder: (_, __,
+                                                                  ___) =>
+                                                              Icon(
+                                                                  Icons
+                                                                      .category_outlined,
+                                                                  size: 18,
+                                                                  color: Colors
+                                                                      .grey),
+                                                        ),
+                                                      )
+                                                    : Icon(
+                                                        Icons.category_outlined,
+                                                        size: 18,
+                                                        color: Colors
+                                                            .grey.shade500),
+                                                title: Text(
+                                                  catName.isEmpty
+                                                      ? 'Category'
+                                                      : catName,
+                                                  style: const TextStyle(
+                                                      fontSize: 13,
+                                                      color: Colors.black87),
+                                                ),
+                                                trailing: Icon(
+                                                    Icons.chevron_right,
+                                                    size: 16,
+                                                    color:
+                                                        Colors.grey.shade400),
+                                                dense: true,
+                                                onTap: () {
+                                                  Navigator.pop(context);
+                                                  Navigator.pushNamed(
+                                                    context,
+                                                    '/category-detail',
+                                                    arguments: {
+                                                      'id': catId,
+                                                      'name': catName,
+                                                    },
+                                                  );
+                                                },
+                                              );
+                                            }).toList(),
+                                    ),
+                                  );
+                                },
+                              );
+                            },
+                          ),
+              ),
+
+              // ── Bottom quick links ────────────────────────────────
+              const Divider(height: 1),
+              ListTile(
+                leading:
+                    Icon(Icons.share_outlined, color: primaryColor, size: 22),
+                title: Text(
+                  AppLocalizations.of(context).translate('refer_earn'),
+                  style: const TextStyle(fontSize: 14),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushNamed(context, '/refer');
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Horizontal side-category chip bar ──────────────────────────────────────
+  Widget _buildCategoryChips() {
+    final primaryColor = Theme.of(context).primaryColor;
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _firestoreService.getActiveSideCategoriesStream(),
+      builder: (context, snapshot) {
+        final sideCategories = snapshot.data ?? [];
+        if (sideCategories.isEmpty) return const SizedBox.shrink();
+
+        final languageProvider =
+            Provider.of<LanguageProvider>(context, listen: false);
+
+        return Container(
+          color: primaryColor,
+          padding: const EdgeInsets.only(bottom: 10),
+          child: SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: sideCategories.length + 1, // +1 for "All"
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  final isSelected = _selectedCategoryId == null;
+                  return GestureDetector(
+                    onTap: () => setState(() => _selectedCategoryId = null),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Colors.white
+                            : Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.5), width: 1),
+                      ),
+                      child: Text(
+                        'All',
+                        style: TextStyle(
+                          color: isSelected ? primaryColor : Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                final sc = sideCategories[index - 1];
+                final scId = sc['id'] as String;
+                final scName = FirestoreHelper.getLocalizedFieldWithLanguage(
+                  sc,
+                  'name',
+                  languageProvider.languageCode,
+                );
+                final isSelected = _selectedCategoryId == scId;
+
+                return GestureDetector(
+                  onTap: () {
+                    // Chip tap → navigate to side-category screen to show
+                    // child categories
+                    Navigator.pushNamed(
+                      context,
+                      '/side-category',
+                      arguments: {'id': scId, 'name': scName},
+                    );
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? Colors.white
+                          : Colors.white.withOpacity(0.18),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.5), width: 1),
+                    ),
+                    child: Text(
+                      scName.isEmpty ? 'Category' : scName,
+                      style: TextStyle(
+                        color: isSelected ? primaryColor : Colors.white,
+                        fontWeight:
+                            isSelected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 }

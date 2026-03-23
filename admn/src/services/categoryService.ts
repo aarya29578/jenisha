@@ -40,6 +40,7 @@ export interface ServiceCategory {
   customLogoUrl?: string;
   order?: number;
   isActive: boolean;
+  sideCategoryId?: string;
   createdAt: Timestamp | null;
 }
 
@@ -94,13 +95,14 @@ export interface ServiceDocumentConfig {
 // ============================================
 export const categoryService = {
   // Add new category
-  addCategory: async (name: string, icon?: string, order?: number): Promise<string> => {
+  addCategory: async (name: string, icon?: string, order?: number, sideCategoryId?: string): Promise<string> => {
     try {
       const docRef = await addDoc(collection(firestore, 'categories'), {
         name: name.trim(),
         icon: icon || '',
         order: order || 0,
         isActive: true,
+        sideCategoryId: sideCategoryId || '',
         createdAt: serverTimestamp(),
       });
       console.log(`✅ Category created: ${name}`);
@@ -228,6 +230,7 @@ export const categoryService = {
               customLogoUrl: data.customLogoUrl || undefined,
               order: data.order || 0,
               isActive: data.isActive ?? true,
+              sideCategoryId: data.sideCategoryId || '',
               createdAt: data.createdAt || null,
             });
           });
@@ -322,6 +325,86 @@ export const categoryService = {
       if (onError) onError(error as Error);
       return () => {};
     }
+  },
+};
+
+// ============================================
+// SIDE CATEGORY SERVICE - queries 'side_categories' collection (parent)
+// ============================================
+export interface SideCategory {
+  id: string;
+  name: string;
+  icon?: string;
+  customLogoUrl?: string;
+  order?: number;
+  isActive: boolean;
+  createdAt: Timestamp | null;
+}
+
+export const sideCategoryService = {
+  // Subscribe to all active side categories
+  subscribeToSideCategories: (
+    callback: (items: SideCategory[]) => void,
+    onError?: (error: Error) => void
+  ) => {
+    const q = query(collection(firestore, 'side_categories'), where('isActive', '==', true));
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const items: SideCategory[] = snapshot.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Omit<SideCategory, 'id'>),
+        }));
+        items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        callback(items);
+      },
+      (err) => onError?.(err as Error)
+    );
+  },
+
+  // Add new side category
+  addSideCategory: async (name: string, icon?: string): Promise<string> => {
+    const docRef = await addDoc(collection(firestore, 'side_categories'), {
+      name: name.trim(),
+      icon: icon || '',
+      order: 0,
+      isActive: true,
+      createdAt: serverTimestamp(),
+    });
+    return docRef.id;
+  },
+
+  // Upload logo to Hostinger and store URL
+  uploadLogo: async (sideCategoryId: string, file: File): Promise<string> => {
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) throw new Error('Invalid file type.');
+    if (file.size > 5 * 1024 * 1024) throw new Error('File too large (max 5 MB).');
+
+    const formData = new FormData();
+    formData.append('logo', file);
+    const res = await fetch('https://jenishaonlineservice.com/uploads/upload_logo.php', {
+      method: 'POST', body: formData,
+    });
+    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    const result = await res.json();
+    if (!result.success || !result.imageUrl) throw new Error(result.error || 'No URL returned');
+
+    const logoUrl = result.imageUrl as string;
+    await updateDoc(doc(firestore, 'side_categories', sideCategoryId), { customLogoUrl: logoUrl });
+    return logoUrl;
+  },
+
+  // Update a side category
+  updateSideCategory: async (id: string, updates: Partial<SideCategory>): Promise<void> => {
+    const data = { ...updates };
+    delete (data as any).id;
+    delete (data as any).createdAt;
+    await updateDoc(doc(firestore, 'side_categories', id), data as any);
+  },
+
+  // Soft-delete (mark inactive)
+  deleteSideCategory: async (id: string): Promise<void> => {
+    await updateDoc(doc(firestore, 'side_categories', id), { isActive: false });
   },
 };
 

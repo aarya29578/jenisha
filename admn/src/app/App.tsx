@@ -18,6 +18,7 @@ import TermsManagement from '@/app/components/pages/TermsManagement';
 import AdminProfile from '@/app/components/pages/AdminProfile';
 import RegistrationSettings from '@/app/components/pages/RegistrationSettings';
 import AppointmentManagement from '@/app/components/pages/AppointmentManagement';
+import SideCategoryManagement from '@/app/components/pages/SideCategoryManagement';
 import MainLayout from '@/app/components/layout/MainLayout';
 import RoleGuard from '@/app/components/guards/RoleGuard';
 import { diagnoseFIRESTORE_DATA } from '@/utils/diagnoseFIRESTORE_DATA';
@@ -119,6 +120,12 @@ function App() {
                   <Route path="/services" element={
                     <RoleGuard allowedRoles={['super_admin']}>
                       <ServiceManagement />
+                    </RoleGuard>
+                  } />
+                  
+                  <Route path="/side-categories" element={
+                    <RoleGuard allowedRoles={['super_admin']}>
+                      <SideCategoryManagement />
                     </RoleGuard>
                   } />
                   

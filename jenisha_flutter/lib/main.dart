@@ -23,6 +23,7 @@ import 'screens/service_form_screen.dart';
 import 'screens/wallet_screen.dart';
 import 'screens/firestore_migration_screen.dart';
 import 'screens/downloaded_certificates_screen.dart';
+import 'screens/side_category_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -131,6 +132,12 @@ class JenishaApp extends StatelessWidget {
               case '/category-detail':
                 return MaterialPageRoute(
                   builder: (_) => const CategoryDetailScreen(),
+                  settings: RouteSettings(
+                      name: settings.name, arguments: settings.arguments),
+                );
+              case '/side-category':
+                return MaterialPageRoute(
+                  builder: (_) => const SideCategoryScreen(),
                   settings: RouteSettings(
                       name: settings.name, arguments: settings.arguments),
                 );

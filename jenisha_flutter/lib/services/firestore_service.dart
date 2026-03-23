@@ -602,9 +602,66 @@ class FirestoreService {
 
   // ============= CATEGORY & SERVICE MANAGEMENT =============
   // NEW FLAT COLLECTION STRUCTURE:
-  // - categories: {id, name, icon, order, isActive, createdAt}
-  // - services: {id, categoryId (reference), name, price, isActive, createdAt}
-  // - document_requirements: {id, serviceId (reference), documentName, required, order, createdAt}
+  // - side_categories: {id, name, icon, order, isActive, createdAt}  ← parent
+  // - categories: {id, name, sideCategoryId, icon, order, isActive, createdAt} ← child
+  // - services: {id, categoryId, name, price, isActive, createdAt}
+
+  /// Get all active side-categories (parent) from 'side_categories' collection
+  Stream<List<Map<String, dynamic>>> getActiveSideCategoriesStream() {
+    return _firestore
+        .collection('side_categories')
+        .where('isActive', isEqualTo: true)
+        .snapshots()
+        .map((snapshot) {
+      final items =
+          snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
+      items.sort((a, b) {
+        final orderA = (a['order'] ?? 0) as int;
+        final orderB = (b['order'] ?? 0) as int;
+        if (orderA != orderB) return orderA.compareTo(orderB);
+        final createdAtA = a['createdAt'] as Timestamp?;
+        final createdAtB = b['createdAt'] as Timestamp?;
+        if (createdAtA != null && createdAtB != null) {
+          return createdAtB.compareTo(createdAtA);
+        }
+        return 0;
+      });
+      return items;
+    }).handleError((e) {
+      print('❌ Error listening to side_categories: $e');
+      return <Map<String, dynamic>>[];
+    });
+  }
+
+  /// Get categories (child) belonging to a specific side-category
+  Stream<List<Map<String, dynamic>>> getCategoriesBySideCategory(
+      String sideCategoryId) {
+    return _firestore
+        .collection('categories')
+        .where('sideCategoryId', isEqualTo: sideCategoryId)
+        .snapshots()
+        .map((snapshot) {
+      final items = snapshot.docs
+          .map((doc) => {...doc.data(), 'id': doc.id})
+          .where((item) => item['isActive'] == true)
+          .toList();
+      items.sort((a, b) {
+        final orderA = (a['order'] ?? 0) as int;
+        final orderB = (b['order'] ?? 0) as int;
+        if (orderA != orderB) return orderA.compareTo(orderB);
+        final createdAtA = a['createdAt'] as Timestamp?;
+        final createdAtB = b['createdAt'] as Timestamp?;
+        if (createdAtA != null && createdAtB != null) {
+          return createdAtB.compareTo(createdAtA);
+        }
+        return 0;
+      });
+      return items;
+    }).handleError((e) {
+      print('❌ Error listening to categories by side_category: $e');
+      return <Map<String, dynamic>>[];
+    });
+  }
 
   /// Get all active categories with real-time listener (from 'categories' collection)
   Stream<List<Map<String, dynamic>>> getActiveCategoriesStream() {

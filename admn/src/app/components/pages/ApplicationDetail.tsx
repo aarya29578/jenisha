@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Check, X, FileText, Download } from 'lucide-react';
+import { ArrowLeft, Check, X, FileText, Download, ZoomIn } from 'lucide-react';
 import { downloadFile } from '../../../utils/downloadFile';
 import { getApplicantName } from '../../../utils/getApplicantName';
 import {
@@ -108,6 +109,7 @@ export default function ApplicationDetail() {
 
   const [userDocuments, setUserDocuments] = useState<DocumentData[]>([]);
   const [textFields, setTextFields] = useState<Record<string, string>>({});
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   // ── Subscribe to single application ───────────────────────────────────────
   useEffect(() => {
@@ -458,14 +460,23 @@ export default function ApplicationDetail() {
                       {documentStatusLabel(docData.status)}
                     </span>
                   </div>
-                  <div className="aspect-video bg-[#0f1518] rounded flex items-center justify-center mb-3 overflow-hidden relative">
+                  <div className="aspect-video bg-[#0f1518] rounded flex items-center justify-center mb-3 overflow-hidden relative group">
                     {docData.imageUrl ? (
                       <>
                         <img
                           src={docData.imageUrl}
                           alt={docData.documentName}
-                          className="w-full h-full object-contain"
+                          className="w-full h-full object-contain cursor-zoom-in"
+                          onClick={() => setLightboxUrl(docData.imageUrl!)}
                         />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" />
+                        <button
+                          onClick={() => setLightboxUrl(docData.imageUrl!)}
+                          className="absolute top-2 left-2 flex items-center gap-1 bg-black/50 hover:bg-black/70 text-white text-xs font-medium px-2 py-1 rounded shadow transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <ZoomIn className="w-3 h-3" />
+                          View
+                        </button>
                         <button
                           onClick={() => downloadFile(docData.imageUrl!, docData.documentName)}
                           className="absolute top-2 right-2 flex items-center gap-1 bg-[#243BFF] hover:bg-[#1e32e0] text-white text-xs font-medium px-2 py-1 rounded shadow transition-colors"
@@ -571,6 +582,71 @@ export default function ApplicationDetail() {
           </button>
         </div>
       </div>
+      {lightboxUrl && (
+        <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />
+      )}
     </div>
+  );
+}
+
+// ── Lightbox helper ────────────────────────────────────────────────────────────
+function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 99999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.92)',
+      }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        style={{
+          position: 'absolute',
+          top: '16px',
+          right: '16px',
+          width: '44px',
+          height: '44px',
+          borderRadius: '50%',
+          background: 'rgba(255,255,255,0.15)',
+          border: 'none',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#fff',
+          fontSize: '22px',
+          lineHeight: 1,
+        }}
+        aria-label="Close"
+      >
+        <X style={{ width: 24, height: 24 }} />
+      </button>
+      <img
+        src={url}
+        alt="Full screen view"
+        style={{
+          maxWidth: '92vw',
+          maxHeight: '92vh',
+          objectFit: 'contain',
+          borderRadius: '8px',
+          boxShadow: '0 8px 48px rgba(0,0,0,0.8)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>,
+    document.body
   );
 }

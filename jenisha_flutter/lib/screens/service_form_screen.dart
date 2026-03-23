@@ -57,6 +57,10 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   bool _isUploadingFilledForm = false;
   int _serviceFee = 0;
 
+  // Number of prints field
+  final TextEditingController _numberOfPrintsController =
+      TextEditingController(text: '1');
+
   @override
   void initState() {
     super.initState();
@@ -610,6 +614,11 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
 
       // Build field data from dynamic fields
       Map<String, dynamic> fieldData = {};
+      // Always include number of prints
+      fieldData['Number of Prints'] =
+          _numberOfPrintsController.text.trim().isEmpty
+              ? '1'
+              : _numberOfPrintsController.text.trim();
       for (var field in _dynamicFields) {
         final fieldName = ((field['fieldName'] ?? field['name']) as dynamic)
                 ?.toString()
@@ -924,30 +933,43 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                           // ── Service image ─────────────────────────────────────────
                           if (_serviceLogoUrl.isNotEmpty) ...[
                             Center(
-                              child: Container(
-                                margin: const EdgeInsets.only(bottom: 20),
-                                width: 100,
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  color: Colors.grey.shade100,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.08),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
+                              child: GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => _ImagePreviewScreen(
+                                        imageUrl: _serviceLogoUrl,
+                                        fieldName: 'Service Image',
+                                      ),
                                     ),
-                                  ],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Image.network(
-                                    _serviceLogoUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.image_not_supported_outlined,
-                                      size: 40,
-                                      color: Colors.grey,
+                                  );
+                                },
+                                child: Container(
+                                  margin: const EdgeInsets.only(bottom: 20),
+                                  width: 160,
+                                  height: 160,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(20),
+                                    color: Colors.grey.shade100,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.08),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: Image.network(
+                                      _serviceLogoUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                        Icons.image_not_supported_outlined,
+                                        size: 60,
+                                        color: Colors.grey,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1125,6 +1147,39 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                           else
                             ..._buildDynamicFields(),
                         ],
+                        const SizedBox(height: 20),
+                        // ── Number of Prints ──────────────────────────────
+                        Text(
+                          'Number of Prints *',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Theme.of(context)
+                                    .extension<CustomColors>()
+                                    ?.textPrimary ??
+                                Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextFormField(
+                          controller: _numberOfPrintsController,
+                          keyboardType: TextInputType.number,
+                          decoration: _inputDecoration('').copyWith(
+                            hintText: 'Enter number of prints',
+                            prefixIcon: const Icon(Icons.print_outlined,
+                                color: Color(0xFF4C4CFF)),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Please enter number of prints';
+                            }
+                            final n = int.tryParse(value.trim());
+                            if (n == null || n < 1) {
+                              return 'Enter a valid number (minimum 1)';
+                            }
+                            return null;
+                          },
+                        ),
                         const SizedBox(height: 20),
                         if (_serviceFee > 0) ...[
                           Container(
@@ -1968,53 +2023,109 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (hasFile)
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Icon(
-                  fieldType == 'image'
-                      ? Icons.image
-                      : fieldType == 'document'
-                          ? Icons.attach_file
-                          : Icons.picture_as_pdf,
-                  color: Theme.of(context).extension<CustomColors>()!.success,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    AppLocalizations.of(context).get('file_uploaded_success'),
-                    style: TextStyle(
-                        color: Theme.of(context)
-                            .extension<CustomColors>()!
-                            .success,
-                        fontSize: 14),
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.remove_red_eye,
-                      size: 20, color: Theme.of(context).colorScheme.primary),
-                  onPressed: () {
-                    final imageUrl = _dynamicFieldValues[fieldName];
-                    if (imageUrl != null) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => _ImagePreviewScreen(
-                            imageUrl: imageUrl,
-                            fieldName: fieldName,
+                // Show tappable thumbnail for images
+                if (fieldType == 'image')
+                  GestureDetector(
+                    onTap: () {
+                      final imageUrl = _dynamicFieldValues[fieldName];
+                      if (imageUrl != null) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => _ImagePreviewScreen(
+                              imageUrl: imageUrl,
+                              fieldName: fieldName,
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        _dynamicFieldValues[fieldName]!,
+                        height: 180,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            height: 180,
+                            color: Colors.grey.shade100,
+                            child: const Center(
+                              child: CircularProgressIndicator(),
+                            ),
+                          );
+                        },
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          height: 180,
+                          color: Colors.grey.shade100,
+                          child: const Center(
+                            child: Icon(Icons.broken_image,
+                                size: 48, color: Colors.grey),
                           ),
                         ),
-                      );
-                    }
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 20),
-                  onPressed: () {
-                    setState(() {
-                      _dynamicFieldValues.remove(fieldName);
-                    });
-                  },
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      fieldType == 'image'
+                          ? Icons.check_circle
+                          : fieldType == 'document'
+                              ? Icons.attach_file
+                              : Icons.picture_as_pdf,
+                      color:
+                          Theme.of(context).extension<CustomColors>()!.success,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        AppLocalizations.of(context)
+                            .get('file_uploaded_success'),
+                        style: TextStyle(
+                            color: Theme.of(context)
+                                .extension<CustomColors>()!
+                                .success,
+                            fontSize: 13),
+                      ),
+                    ),
+                    // Eye button only for non-images (images already have thumbnail)
+                    if (fieldType != 'image')
+                      IconButton(
+                        icon: Icon(Icons.remove_red_eye,
+                            size: 20,
+                            color: Theme.of(context).colorScheme.primary),
+                        onPressed: () {
+                          final imageUrl = _dynamicFieldValues[fieldName];
+                          if (imageUrl != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => _ImagePreviewScreen(
+                                  imageUrl: imageUrl,
+                                  fieldName: fieldName,
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () {
+                        setState(() {
+                          _dynamicFieldValues.remove(fieldName);
+                        });
+                      },
+                    ),
+                  ],
                 ),
               ],
             )
@@ -2190,6 +2301,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     for (var controller in _textControllers.values) {
       controller.dispose();
     }
+    _numberOfPrintsController.dispose();
     super.dispose();
   }
 }
@@ -2207,53 +2319,78 @@ class _ImagePreviewScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Text(
-          fieldName,
-          style: const TextStyle(color: Colors.white),
-        ),
-        iconTheme: const IconThemeData(color: Colors.white),
-      ),
-      body: Center(
-        child: InteractiveViewer(
-          panEnabled: true,
-          boundaryMargin: const EdgeInsets.all(20),
-          minScale: 0.5,
-          maxScale: 4.0,
-          child: Image.network(
-            imageUrl,
-            fit: BoxFit.contain,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Center(
-                child: CircularProgressIndicator(
-                  value: loadingProgress.expectedTotalBytes != null
-                      ? loadingProgress.cumulativeBytesLoaded /
-                          loadingProgress.expectedTotalBytes!
-                      : null,
-                  color: Colors.white,
-                ),
-              );
-            },
-            errorBuilder: (context, error, stackTrace) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline,
-                        color: Theme.of(context).colorScheme.error, size: 48),
-                    const SizedBox(height: 16),
-                    Text(
-                      AppLocalizations.of(context).get('failed_to_load_cert'),
-                      style: const TextStyle(color: Colors.white),
+      backgroundColor: Colors.black,
+      body: Stack(
+        children: [
+          // Full-screen interactive image
+          Center(
+            child: InteractiveViewer(
+              panEnabled: true,
+              boundaryMargin: const EdgeInsets.all(20),
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.network(
+                imageUrl,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                      color: Colors.white,
                     ),
-                  ],
-                ),
-              );
-            },
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline,
+                            color: Theme.of(context).colorScheme.error,
+                            size: 48),
+                        const SizedBox(height: 16),
+                        Text(
+                          AppLocalizations.of(context)
+                              .get('failed_to_load_cert'),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
-        ),
+          // Close (×) button in top-right corner
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
