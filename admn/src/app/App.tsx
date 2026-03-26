@@ -22,6 +22,7 @@ import AppointmentManagement from '@/app/components/pages/AppointmentManagement'
 import SideCategoryManagement from '@/app/components/pages/SideCategoryManagement';
 import MainLayout from '@/app/components/layout/MainLayout';
 import RoleGuard from '@/app/components/guards/RoleGuard';
+import PermissionGuard from '@/app/components/guards/PermissionGuard';
 import { diagnoseFIRESTORE_DATA } from '@/utils/diagnoseFIRESTORE_DATA';
 import { authService, AdminUser } from '@/services/authService';
 
@@ -165,8 +166,10 @@ function App() {
                   } />
                   
                   <Route path="/withdrawals" element={
-                    <RoleGuard allowedRoles={['super_admin']}>
-                      <WithdrawalManagement />
+                    <RoleGuard allowedRoles={['super_admin', 'admin']}>
+                      <PermissionGuard permission="withdrawalAccess">
+                        <WithdrawalManagement />
+                      </PermissionGuard>
                     </RoleGuard>
                   } />
                   

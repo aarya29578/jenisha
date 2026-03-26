@@ -23,6 +23,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
+import { authService } from '@/services/authService';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyC72UmM3pMwRBh0pKjKy_jN9wmpE_MP_GM',
@@ -173,6 +174,12 @@ function RejectModal({
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export default function WithdrawalManagement() {
+  const currentUser = authService.getCurrentUser();
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const isAdmin = currentUser?.role === 'admin';
+  const hasWithdrawalAccess = !!(
+    currentUser && (currentUser.role === 'super_admin' || currentUser.permissions?.withdrawalAccess === true)
+  );
   const [requests, setRequests] = useState<WithdrawalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -240,6 +247,12 @@ export default function WithdrawalManagement() {
     newStatus: 'processing' | 'approved',
     request: WithdrawalRequest
   ) => {
+    // Guard: only users with withdrawal access (or super admin) can change status
+    if (!hasWithdrawalAccess) {
+      alert('You do not have permission to perform this action.');
+      return;
+    }
+
     setActionLoading(requestId + newStatus);
     try {
       await updateDoc(doc(db, 'wallet_transactions', requestId), {
@@ -252,6 +265,12 @@ export default function WithdrawalManagement() {
   };
 
   const rejectRequest = async (request: WithdrawalRequest, reason: string) => {
+    // Guard: only users with withdrawal access (or super admin) can reject
+    if (!hasWithdrawalAccess) {
+      alert('You do not have permission to perform this action.');
+      return;
+    }
+
     await updateDoc(doc(db, 'wallet_transactions', request.id), {
       withdrawalStatus: 'rejected',
       rejectionReason: reason,
@@ -424,54 +443,65 @@ export default function WithdrawalManagement() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
-                      {req.withdrawalStatus === 'pending' && (
+                        {req.withdrawalStatus === 'pending' && (
                           <>
-                            <button
-                              onClick={() => updateStatus(req.id, 'processing', req)}
-                              disabled={actionLoading === req.id + 'processing'}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e88e5] text-white rounded hover:bg-[#1565c0] transition-colors text-xs disabled:opacity-50"
-                              title="Mark as Processing"
-                            >
-                              {actionLoading === req.id + 'processing' ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Clock className="w-3.5 h-3.5" />
-                              )}
-                              Processing
-                            </button>
-                            <button
-                              onClick={() => setRejectTarget(req)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e53935] text-white rounded hover:bg-[#c62828] transition-colors text-xs"
-                              title="Reject"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              Reject
-                            </button>
+                            {hasWithdrawalAccess && (
+                              <button
+                                onClick={() => updateStatus(req.id, 'processing', req)}
+                                disabled={actionLoading === req.id + 'processing'}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#1e88e5] text-white rounded hover:bg-[#1565c0] transition-colors text-xs disabled:opacity-50"
+                                title="Mark as Processing"
+                              >
+                                {actionLoading === req.id + 'processing' ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Clock className="w-3.5 h-3.5" />
+                                )}
+                                Processing
+                              </button>
+                            )}
+
+                            {hasWithdrawalAccess && (
+                              <button
+                                onClick={() => setRejectTarget(req)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e53935] text-white rounded hover:bg-[#c62828] transition-colors text-xs"
+                                title="Reject"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                Reject
+                              </button>
+                            )}
                           </>
                         )}
                         {req.withdrawalStatus === 'processing' && (
                           <>
-                            <button
-                              onClick={() => updateStatus(req.id, 'approved', req)}
-                              disabled={actionLoading === req.id + 'approved'}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4caf50] text-white rounded hover:bg-[#388e3c] transition-colors text-xs disabled:opacity-50"
-                              title="Approve"
-                            >
-                              {actionLoading === req.id + 'approved' ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Check className="w-3.5 h-3.5" />
-                              )}
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => setRejectTarget(req)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e53935] text-white rounded hover:bg-[#c62828] transition-colors text-xs"
-                              title="Reject"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              Reject
-                            </button>
+                            {hasWithdrawalAccess ? (
+                              <>
+                                <button
+                                  onClick={() => updateStatus(req.id, 'approved', req)}
+                                  disabled={actionLoading === req.id + 'approved'}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#4caf50] text-white rounded hover:bg-[#388e3c] transition-colors text-xs disabled:opacity-50"
+                                  title="Approve"
+                                >
+                                  {actionLoading === req.id + 'approved' ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Check className="w-3.5 h-3.5" />
+                                  )}
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => setRejectTarget(req)}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#e53935] text-white rounded hover:bg-[#c62828] transition-colors text-xs"
+                                  title="Reject"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  Reject
+                                </button>
+                              </>
+                            ) : (
+                              <span className="px-3 py-1.5 text-xs text-gray-300 italic">Processing</span>
+                            )}
                           </>
                         )}
                         {(req.withdrawalStatus === 'approved' || req.withdrawalStatus === 'rejected') && (

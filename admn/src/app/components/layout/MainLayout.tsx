@@ -57,6 +57,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
   
   const currentUser = authService.getCurrentUser();
 
+  // Debug: log current user to verify permissions and real-time updates
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('MainLayout currentUser:', currentUser);
+  }
+
   const handleLogout = async () => {
     try {
       await authService.logout();
@@ -152,12 +157,18 @@ export default function MainLayout({ children }: MainLayoutProps) {
             {navItems
               .filter((item) => {
                 if (!currentUser) return false;
+                // Withdrawal Requests: allow if super_admin OR the permission flag is true
+                if (item.path === '/withdrawals') {
+                  // Super admin override: always show
+                  if (currentUser.role === 'super_admin') return true;
+                  // Otherwise require explicit permission
+                  return currentUser.permissions?.withdrawalAccess === true;
+                }
                 return item.roles.includes(currentUser.role);
               })
               .map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.path;
-                
                 return (
                   <Link
                     key={item.path}

@@ -185,13 +185,16 @@ class _WalletScreenState extends State<WalletScreen> {
     // Load payment details from profile
     final userDoc = await _db.collection('users').doc(user.uid).get();
     final userData = userDoc.data();
-    final details = userData?['withdrawalDetails'] as Map<String, dynamic>?;
+
+    // Read UPI and bank details from their actual Firestore paths
+    final upiId = userData?['upiId'] as String? ?? '';
+    final bankData = userData?['bankDetails'] as Map<String, dynamic>?;
+    final accountNumber = bankData?['accountNumber'] as String? ?? '';
 
     if (!mounted) return;
 
-    if (details == null ||
-        ((details['upiId'] as String? ?? '').isEmpty &&
-            (details['accountNumber'] as String? ?? '').isEmpty)) {
+    // Block withdraw only if BOTH UPI and bank details are missing
+    if (upiId.isEmpty && accountNumber.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(loc.get('please_add_payment_details')),
@@ -200,6 +203,17 @@ class _WalletScreenState extends State<WalletScreen> {
       );
       return;
     }
+
+    // Build a unified details map for the bottom sheet.
+    // Prefer UPI if available, otherwise fall back to bank.
+    final details = <String, dynamic>{
+      'method': upiId.isNotEmpty ? 'upi' : 'bank',
+      'upiId': upiId,
+      'holderName': bankData?['holderName'] ?? '',
+      'accountNumber': accountNumber,
+      'ifscCode': bankData?['ifsc'] ?? '',
+      'bankName': bankData?['bankName'] ?? '',
+    };
 
     final amountController = TextEditingController();
     String errorText = '';

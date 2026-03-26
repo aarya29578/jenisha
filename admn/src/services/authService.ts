@@ -15,6 +15,7 @@ import {
   setDoc,
   serverTimestamp,
 } from 'firebase/firestore';
+import { onSnapshot } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 
 const firebaseConfig = {
@@ -45,6 +46,10 @@ export interface AdminUser {
   role: 'super_admin' | 'admin' | 'moderator';
   createdAt: any;
   allowedCategories?: string[];
+  permissions?: {
+    withdrawalAccess?: boolean;
+    [key: string]: any;
+  };
 }
 
 class AuthService {
@@ -133,9 +138,21 @@ class AuthService {
   async login(email: string, password: string): Promise<AdminUser> {
     try {
       console.log('🔑 [AUTH] Attempting login...');
-      
+      // Basic validation / sanitization before calling Firebase Auth
+      const rawEmail = (email ?? '').toString().trim().toLowerCase();
+      const rawPassword = (password ?? '').toString();
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!rawEmail || !emailRegex.test(rawEmail)) {
+        throw new Error('Invalid email format');
+      }
+
+      if (!rawPassword) {
+        throw new Error('Password is required');
+      }
+
       // Sign in with Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, rawEmail, rawPassword);
       const user = userCredential.user;
 
       // Fetch user document from admin_users collection (NOT users)
@@ -163,6 +180,7 @@ class AuthService {
         role: role as 'super_admin' | 'admin' | 'moderator',
         createdAt: userData.createdAt,
         allowedCategories: Array.isArray(userData.allowedCategories) ? userData.allowedCategories : [],
+        permissions: userData.permissions || {},
       };
 
       console.log('✅ [AUTH] Login successful');
@@ -237,42 +255,91 @@ class AuthService {
    * Fetches role from 'admin_users' collection
    */
   onAuthStateChange(callback: (user: AdminUser | null) => void): () => void {
-    return onAuthStateChanged(auth, async (firebaseUser: User | null) => {
-      if (firebaseUser) {
+    // Wrap the auth state listener and a potential Firestore snapshot listener
+    let unsubSnapshot: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, (firebaseUser: User | null) => {
+      // Clean up any previous snapshot listener when auth state changes
+      if (unsubSnapshot) {
         try {
-          // Fetch user data from admin_users collection (NOT users)
-          const adminUserDocRef = doc(db, 'admin_users', firebaseUser.uid);
-          const adminUserDoc = await getDoc(adminUserDocRef);
-
-          if (adminUserDoc.exists()) {
-            const userData = adminUserDoc.data();
-            const role = userData.role || 'admin';
-
-            if (['super_admin', 'admin', 'moderator'].includes(role)) {
-              this.currentUser = {
-                uid: firebaseUser.uid,
-                name: userData.name || 'Admin',
-                email: userData.email || firebaseUser.email || '',
-                role: role as 'super_admin' | 'admin' | 'moderator',
-                createdAt: userData.createdAt,
-                allowedCategories: Array.isArray(userData.allowedCategories) ? userData.allowedCategories : [],
-              };
-              callback(this.currentUser);
-              return;
-            } else {
-              console.warn('⚠️ [AUTH] User has invalid role:', role);
-            }
-          } else {
-            console.warn('⚠️ [AUTH] User not found in admin_users collection');
-          }
-        } catch (error) {
-          console.error('❌ [AUTH] Error fetching user data:', error);
+          unsubSnapshot();
+        } catch (e) {
+          console.warn('Failed to unsubscribe previous admin snapshot', e);
         }
+        unsubSnapshot = null;
       }
 
-      this.currentUser = null;
-      callback(null);
+      if (!firebaseUser) {
+        this.currentUser = null;
+        callback(null);
+        return;
+      }
+
+      try {
+        const adminUserDocRef = doc(db, 'admin_users', firebaseUser.uid);
+
+        // Listen in real-time to admin_users/{uid} to pick up permission changes
+        unsubSnapshot = onSnapshot(
+          adminUserDocRef,
+          (adminUserDoc: any) => {
+            if (adminUserDoc.exists()) {
+              const userData: any = adminUserDoc.data();
+              const role = userData.role || 'admin';
+
+              if (['super_admin', 'admin', 'moderator'].includes(role)) {
+                this.currentUser = {
+                  uid: firebaseUser.uid,
+                  name: userData.name || 'Admin',
+                  email: userData.email || firebaseUser.email || '',
+                  role: role as 'super_admin' | 'admin' | 'moderator',
+                  createdAt: userData.createdAt,
+                  allowedCategories: Array.isArray(userData.allowedCategories) ? userData.allowedCategories : [],
+                  permissions: userData.permissions || {},
+                };
+                console.log('🔁 [AUTH] admin_users snapshot update:', this.currentUser);
+                callback(this.currentUser);
+                return;
+              } else {
+                console.warn('⚠️ [AUTH] User has invalid role in admin_users doc:', role);
+              }
+            } else {
+              console.warn('⚠️ [AUTH] admin_users doc does not exist for uid:', firebaseUser.uid);
+            }
+
+            // If we reach here, treat as no access
+            this.currentUser = null;
+            callback(null);
+          },
+          (error: any) => {
+            console.error('❌ [AUTH] admin_users snapshot error:', error);
+            // On snapshot error, fallback to null user
+            this.currentUser = null;
+            callback(null);
+          }
+        );
+      } catch (error) {
+        console.error('❌ [AUTH] Error setting up admin_users snapshot:', error);
+        this.currentUser = null;
+        callback(null);
+      }
     });
+
+    // Return a combined unsubscribe function
+    return () => {
+      try {
+        unsubAuth();
+      } catch (e) {
+        console.warn('Error unsubscribing auth listener', e);
+      }
+      if (unsubSnapshot) {
+        try {
+          unsubSnapshot();
+        } catch (e) {
+          console.warn('Error unsubscribing snapshot listener', e);
+        }
+        unsubSnapshot = null;
+      }
+    };
   }
 
   /**

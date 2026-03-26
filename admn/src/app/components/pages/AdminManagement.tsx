@@ -40,6 +40,10 @@ interface AdminUser {
   createdAt: Timestamp;
   createdBy: string;
   allowedCategories?: string[];
+  permissions?: {
+    withdrawalAccess?: boolean;
+    [key: string]: any;
+  };
 }
 
 export default function AdminManagement() {
@@ -69,11 +73,14 @@ export default function AdminManagement() {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
   const [savingAccess, setSavingAccess] = useState(false);
+  // Withdrawal permission state for modal
+  const [withdrawalAccess, setWithdrawalAccess] = useState(false);
 
   const openAccessModal = async (admin: AdminUser) => {
     setAccessTargetAdmin(admin);
     setShowAccessModal(true);
     setLoadingCategories(true);
+    setWithdrawalAccess(!!admin.permissions?.withdrawalAccess);
     try {
       const snap = await getDocs(collection(db, 'categories'));
       const items = snap.docs
@@ -94,8 +101,12 @@ export default function AdminManagement() {
     try {
       await updateDoc(doc(db, 'admin_users', accessTargetAdmin.id), {
         allowedCategories: selectedCategories,
+        permissions: {
+          ...(accessTargetAdmin.permissions || {}),
+          withdrawalAccess: withdrawalAccess,
+        },
       });
-      alert(`Category access updated for ${accessTargetAdmin.name}`);
+      alert(`Access updated for ${accessTargetAdmin.name}`);
       setShowAccessModal(false);
     } catch (e) {
       console.error('Error saving access:', e);
@@ -127,6 +138,7 @@ export default function AdminManagement() {
             createdAt: data.createdAt,
             createdBy: data.createdBy || '',
             allowedCategories: Array.isArray(data.allowedCategories) ? data.allowedCategories : [],
+            permissions: data.permissions || {},
           });
         });
         setAdmins(adminList);
@@ -265,6 +277,9 @@ export default function AdminManagement() {
           createdAt: serverTimestamp(),
           createdBy: currentUser?.uid || '',
           updatedAt: serverTimestamp(),
+          permissions: {
+            withdrawalAccess: false,
+          },
         });
         console.log('✅ Firestore admin_users doc created');
         alert(`Admin "${formData.name}" created successfully!`);
@@ -619,10 +634,23 @@ export default function AdminManagement() {
       {showAccessModal && accessTargetAdmin && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
           <div className="bg-[#0f1720] border border-[#1f2937] rounded-lg w-full max-w-md p-6 shadow-xl">
-            <h2 className="text-lg font-semibold text-gray-100 mb-1">Give Category Access</h2>
+            <h2 className="text-lg font-semibold text-gray-100 mb-1">Give Access</h2>
             <p className="text-sm text-gray-400 mb-4">
-              Select categories for <strong className="text-gray-200">{accessTargetAdmin.name}</strong>
+              Set permissions for <strong className="text-gray-200">{accessTargetAdmin.name}</strong>
             </p>
+
+            {/* Withdrawal Requests Permission */}
+            <div className="mb-4 pb-3 border-b border-[#2a3441]">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={withdrawalAccess}
+                  onChange={e => setWithdrawalAccess(e.target.checked)}
+                  className="w-4 h-4 accent-[#243BFF]"
+                />
+                <span className="text-sm font-medium text-gray-200">Access to Withdrawal Requests</span>
+              </label>
+            </div>
 
             {loadingCategories ? (
               <div className="flex items-center justify-center py-8">
