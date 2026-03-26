@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -57,9 +58,11 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   bool _isUploadingFilledForm = false;
   int _serviceFee = 0;
 
-  // Number of prints field
-  final TextEditingController _numberOfPrintsController =
-      TextEditingController(text: '1');
+  // Number of prints — controlled by +/- stepper
+  int _numberOfPrints = 1;
+
+  /// Total fee = price-per-print (from Firestore) × quantity chosen by user
+  int get _totalServiceFee => _numberOfPrints * _serviceFee;
 
   @override
   void initState() {
@@ -372,10 +375,14 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _paymentRow('Service Fee', '₹$_serviceFee', bold: true),
+            _paymentRow('Service Fee', '₹$_totalServiceFee', bold: true),
+            if (_numberOfPrints > 1)
+              _paymentRow('  (₹$_serviceFee × $_numberOfPrints prints)', '',
+                  bold: false),
             const Divider(),
             _paymentRow('Wallet Balance', '₹$balance'),
-            _paymentRow('Balance After Payment', '₹${balance - _serviceFee}'),
+            _paymentRow(
+                'Balance After Payment', '₹${balance - _totalServiceFee}'),
           ],
         ),
         actions: [
@@ -580,7 +587,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       final balanceRaw = walletDoc.data()?['walletBalance'] ?? 0;
       final balance = (balanceRaw is num) ? balanceRaw.toInt() : 0;
 
-      if (balance < _serviceFee) {
+      if (balance < _totalServiceFee) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -615,10 +622,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       // Build field data from dynamic fields
       Map<String, dynamic> fieldData = {};
       // Always include number of prints
-      fieldData['Number of Prints'] =
-          _numberOfPrintsController.text.trim().isEmpty
-              ? '1'
-              : _numberOfPrintsController.text.trim();
+      fieldData['Number of Prints'] = _numberOfPrints.toString();
       for (var field in _dynamicFields) {
         final fieldName = ((field['fieldName'] ?? field['name']) as dynamic)
                 ?.toString()
@@ -711,7 +715,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user.uid)
-            .update({'walletBalance': FieldValue.increment(-_serviceFee)});
+            .update({'walletBalance': FieldValue.increment(-_totalServiceFee)});
         try {
           await FirebaseFirestore.instance
               .collection('wallet_transactions')
@@ -721,7 +725,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
             'agentName': fullName,
             'serviceId': _serviceId,
             'serviceName': _serviceName,
-            'amount': _serviceFee,
+            'amount': _totalServiceFee,
             'type': 'service_payment',
             'description': 'Service payment for $_serviceName',
             'createdAt': FieldValue.serverTimestamp(),
@@ -749,7 +753,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
           'filledFormUrl': uploadedFilledFormUrl,
         'status': 'pending',
         'paymentStatus': paymentMade ? 'paid' : 'free',
-        'amountPaid': paymentMade ? _serviceFee : 0,
+        'amountPaid': paymentMade ? _totalServiceFee : 0,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -764,7 +768,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
           userId: user.uid,
           applicationId: applicationId,
           agentFullName: fullName,
-          amountPaid: _serviceFee.toDouble(),
+          amountPaid: _totalServiceFee.toDouble(),
         );
       }
 
@@ -1150,7 +1154,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                         const SizedBox(height: 20),
                         // ── Number of Prints ──────────────────────────────
                         Text(
-                          'Number of Prints *',
+                          'Number of Prints',
                           style: TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -1160,28 +1164,86 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                                 Colors.black87,
                           ),
                         ),
-                        const SizedBox(height: 6),
-                        TextFormField(
-                          controller: _numberOfPrintsController,
-                          keyboardType: TextInputType.number,
-                          decoration: _inputDecoration('').copyWith(
-                            hintText: 'Enter number of prints',
-                            prefixIcon: const Icon(Icons.print_outlined,
-                                color: Color(0xFF4C4CFF)),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFF),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: Colors.grey.shade200, width: 1),
                           ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Please enter number of prints';
-                            }
-                            final n = int.tryParse(value.trim());
-                            if (n == null || n < 1) {
-                              return 'Enter a valid number (minimum 1)';
-                            }
-                            return null;
-                          },
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              // Decrease button
+                              GestureDetector(
+                                onTap: () {
+                                  if (_numberOfPrints > 1) {
+                                    setState(() => _numberOfPrints--);
+                                  }
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: _numberOfPrints > 1
+                                        ? const Color(0xFF4C4CFF)
+                                        : Colors.grey.shade300,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.remove,
+                                      color: Colors.white, size: 20),
+                                ),
+                              ),
+                              // Count + label
+                              Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.print_outlined,
+                                          color: Color(0xFF4C4CFF), size: 18),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '$_numberOfPrints',
+                                        style: const TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1a1a1a),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Text(
+                                    _numberOfPrints == 1 ? 'Print' : 'Prints',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade500),
+                                  ),
+                                ],
+                              ),
+                              // Increase button
+                              GestureDetector(
+                                onTap: () => setState(() => _numberOfPrints++),
+                                child: Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF4C4CFF),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(Icons.add,
+                                      color: Colors.white, size: 20),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                         const SizedBox(height: 20),
                         if (_serviceFee > 0) ...[
+                          // base fee > 0 means this service has a charge
                           Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -1206,12 +1268,19 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                                           color: Color(0xFF666666)),
                                     ),
                                     Text(
-                                      '₹$_serviceFee',
+                                      '₹$_totalServiceFee',
                                       style: const TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold,
                                           color: Color(0xFF4C4CFF)),
                                     ),
+                                    if (_numberOfPrints > 1)
+                                      Text(
+                                        '₹$_serviceFee × $_numberOfPrints prints',
+                                        style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade500),
+                                      ),
                                   ],
                                 ),
                                 const Spacer(),
@@ -1311,7 +1380,15 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       } else if (fieldType == 'image' ||
           fieldType == 'pdf' ||
           fieldType == 'document') {
-        widgets.add(_buildFileUploadField(fieldName, fieldType, isRequired));
+        final maxSizeKB = (field['maxSizeKB'] as num?)?.toInt() ?? 0;
+        final dimension = field['dimension'] as String?;
+        widgets.add(_buildFileUploadField(
+          fieldName,
+          fieldType,
+          isRequired,
+          maxSizeKB: maxSizeKB,
+          dimension: dimension,
+        ));
       } else if (fieldType == 'appointment') {
         widgets.add(_buildAppointmentField(fieldName, isRequired));
       } else if (fieldType == 'time_range') {
@@ -2005,7 +2082,12 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
 
   /// Build file upload field (image/pdf/document)
   Widget _buildFileUploadField(
-      String fieldName, String fieldType, bool isRequired) {
+    String fieldName,
+    String fieldType,
+    bool isRequired, {
+    int maxSizeKB = 0,
+    String? dimension,
+  }) {
     final hasFile = _dynamicFieldValues[fieldName] != null;
     final showError = _showValidationErrors && isRequired && !hasFile;
 
@@ -2133,7 +2215,12 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
             ElevatedButton.icon(
               onPressed: _uploadingFields.contains(fieldName)
                   ? null
-                  : () => _pickAndUploadFile(fieldName, fieldType),
+                  : () => _pickAndUploadFile(
+                        fieldName,
+                        fieldType,
+                        maxSizeKB: maxSizeKB,
+                        dimension: dimension,
+                      ),
               icon: _uploadingFields.contains(fieldName)
                   ? const SizedBox(
                       width: 18,
@@ -2181,7 +2268,12 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
   }
 
   /// Pick and upload file to Hostinger
-  Future<void> _pickAndUploadFile(String fieldName, String fieldType) async {
+  Future<void> _pickAndUploadFile(
+    String fieldName,
+    String fieldType, {
+    int maxSizeKB = 0,
+    String? dimension,
+  }) async {
     try {
       final ImagePicker picker = ImagePicker();
 
@@ -2240,6 +2332,72 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
       }
 
       if (file == null) return;
+
+      // ── Validate image constraints before uploading ──────────────────────
+      // Both maxSizeKB and dimension are independently optional.
+      // If set, each is validated; both can be set simultaneously.
+      if (fieldType == 'image') {
+        final bytes = await file.readAsBytes();
+
+        // 1) File-size check (only when maxSizeKB > 0)
+        if (maxSizeKB > 0) {
+          final fileSizeKB = bytes.length ~/ 1024;
+          if (fileSizeKB > maxSizeKB) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Image too large ($fileSizeKB KB). Max allowed: $maxSizeKB KB.'),
+                  backgroundColor: Colors.red.shade700,
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+            return;
+          }
+        }
+
+        // 2) Pixel-dimension check (only when dimension is set)
+        if (dimension != null && dimension!.isNotEmpty) {
+          final codec = await ui.instantiateImageCodec(bytes);
+          final frame = await codec.getNextFrame();
+          final img = frame.image;
+          final w = img.width;
+          final h = img.height;
+
+          bool dimensionOk = false;
+          String expectedDesc = '';
+          if (dimension == '213x213') {
+            dimensionOk = (w == 213 && h == 213);
+            expectedDesc = '213 × 213 pixels';
+          } else if (dimension == '3.5x4.5') {
+            // ≈ 413 × 531 px @ 300 dpi with ±5 % tolerance
+            const int expW = 413, expH = 531;
+            const double tol = 0.05;
+            dimensionOk = (w >= expW * (1 - tol) &&
+                w <= expW * (1 + tol) &&
+                h >= expH * (1 - tol) &&
+                h <= expH * (1 + tol));
+            expectedDesc = '~413 × 531 px (3.5 × 4.5 cm at 300 dpi)';
+          } else {
+            dimensionOk = true; // unknown preset — skip check
+          }
+
+          if (!dimensionOk) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                      'Wrong image dimensions (${w}×${h} px). Required: $expectedDesc.'),
+                  backgroundColor: Colors.red.shade700,
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+            return;
+          }
+        }
+      }
 
       // Show inline loading state — avoids Navigator.pop issues when camera
       // reopens the activity on Android (which would pop the wrong route)
@@ -2301,7 +2459,7 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
     for (var controller in _textControllers.values) {
       controller.dispose();
     }
-    _numberOfPrintsController.dispose();
+    // _numberOfPrints is a plain int — no controller to dispose
     super.dispose();
   }
 }

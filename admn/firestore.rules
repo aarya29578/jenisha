@@ -178,5 +178,21 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ================= WITHDRAWALS =================
+    match /withdrawals/{doc} {
+      // Users can read their own withdrawal requests; admins can read all.
+      allow read: if isAdmin() ||
+        (isAuthenticated() && resource.data.userId == request.auth.uid);
+      // Users can create their own withdrawal requests (status must be 'pending').
+      allow create: if isAuthenticated() &&
+        request.auth.uid == request.resource.data.userId &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.amount is number &&
+        request.resource.data.amount > 0;
+      // Only admins may update (change status) or delete.
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
   }
 }

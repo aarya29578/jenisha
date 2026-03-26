@@ -29,6 +29,7 @@ interface FieldFormData {
   placeholder: string;
   displayOrder: number;
   maxSizeKB?: number;
+  dimension?: string;
 }
 
 interface Props {
@@ -84,6 +85,7 @@ export default function ServiceDetail({ service, onBack }: Props) {
             placeholder:  f.placeholder || '',
             displayOrder: f.displayOrder,
             maxSizeKB:    (f as any).maxSizeKB ?? undefined,
+            dimension:    (f as any).dimension  ?? undefined,
           }))
         );
         setLoading(false);
@@ -359,9 +361,6 @@ export default function ServiceDetail({ service, onBack }: Props) {
                           updated[index] = {
                             ...updated[index],
                             fieldType: e.target.value as FieldFormData['fieldType'],
-                            ...(e.target.value === 'image' && !updated[index].maxSizeKB
-                              ? { maxSizeKB: 100 }
-                              : {}),
                           };
                           setFields(updated);
                         }}
@@ -386,27 +385,89 @@ export default function ServiceDetail({ service, onBack }: Props) {
                     </div>
                   </div>
 
-                  {/* Max image size */}
-                  {(field.fieldType === 'image' || field.fieldType === 'pdf' || field.fieldType === 'document' || field.fieldType === 'template') && (
+                  {/* Image: Max File Size + Required Dimensions (both always visible, both optional) */}
+                  {field.fieldType === 'image' && (
+                    <>
+                      {/* Max File Size (KB) */}
+                      <div>
+                        <label className="block text-xs font-medium text-[#666666] mb-1">
+                          Max File Size (KB) <span className="text-[#aaa] font-normal">(optional)</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={5120}
+                          step="100"
+                          placeholder="e.g. 500"
+                          value={field.maxSizeKB ?? ''}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            handleFieldChange(
+                              index,
+                              'maxSizeKB' as keyof FieldFormData,
+                              raw === '' ? undefined : Math.max(0, Number(raw)),
+                            );
+                          }}
+                          className="w-full px-3 py-2 border-2 border-[#e5e5e5] rounded text-sm text-[#1a1a1a] focus:outline-none focus:border-[#4C4CFF]"
+                        />
+                        <p className="text-xs text-[#999] mt-1">Leave blank to skip size check. Max 5120 KB (5 MB).</p>
+                      </div>
+
+                      {/* Required Image Dimensions */}
+                      <div>
+                        <label className="block text-xs font-medium text-[#666666] mb-1">
+                          Required Image Dimensions <span className="text-[#aaa] font-normal">(optional)</span>
+                        </label>
+                        <select
+                          value={field.dimension ?? ''}
+                          onChange={(e) =>
+                            handleFieldChange(
+                              index,
+                              'dimension' as keyof FieldFormData,
+                              e.target.value === '' ? undefined : e.target.value,
+                            )
+                          }
+                          className="w-full px-3 py-2 border-2 border-[#e5e5e5] rounded text-sm text-[#1a1a1a] focus:outline-none focus:border-[#4C4CFF]"
+                        >
+                          <option value="">— No dimension restriction —</option>
+                          <option value="3.5x4.5">3.5 cm × 4.5 cm (Passport Size)</option>
+                          <option value="213x213">213 × 213 pixels</option>
+                        </select>
+                        {field.dimension && (
+                          <p className="text-xs text-[#999] mt-1">
+                            {field.dimension === '213x213'
+                              ? 'Image must be exactly 213 × 213 px'
+                              : 'Image must be 3.5 cm × 4.5 cm (≈ 413 × 531 px at 300 dpi)'}
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* PDF / Document / Template: Max File Size only */}
+                  {(field.fieldType === 'pdf' || field.fieldType === 'document' || field.fieldType === 'template') && (
                     <div>
                       <label className="block text-xs font-medium text-[#666666] mb-1">
-                        Max Image Size (KB)
+                        Max File Size (KB) <span className="text-[#aaa] font-normal">(optional)</span>
                       </label>
                       <input
                         type="number"
-                        min={100}
+                        min={0}
                         max={5120}
                         step="100"
                         placeholder="e.g. 1024"
-                        value={field.maxSizeKB || 100}
+                        value={field.maxSizeKB ?? ''}
                         onChange={(e) => {
-                          const v = Number(e.target.value);
-                          if (v < 100) return;
-                          handleFieldChange(index, 'maxSizeKB' as keyof FieldFormData, v);
+                          const raw = e.target.value;
+                          handleFieldChange(
+                            index,
+                            'maxSizeKB' as keyof FieldFormData,
+                            raw === '' ? undefined : Math.max(0, Number(raw)),
+                          );
                         }}
                         className="w-full px-3 py-2 border-2 border-[#e5e5e5] rounded text-sm text-[#1a1a1a] focus:outline-none focus:border-[#4C4CFF]"
                       />
-                      <p className="text-xs text-[#999] mt-1">Min 100 KB – Max 5120 KB (5 MB)</p>
+                      <p className="text-xs text-[#999] mt-1">Leave blank to skip size check. Max 5120 KB (5 MB).</p>
                     </div>
                   )}
 

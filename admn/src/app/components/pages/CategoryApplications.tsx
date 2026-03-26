@@ -67,11 +67,14 @@ export default function CategoryApplications({ categoryId, categoryName, onBack 
             const pending: Record<string, number> = {};
 
             appSnap.forEach((d) => {
-              const sid: string = d.data().serviceId || '';
+              const data = d.data();
+              const sid: string = data.serviceId || '';
               if (!serviceMap[sid]) return;
-              total[sid] = (total[sid] ?? 0) + 1;
-              if (d.data().status === 'pending') {
-                pending[sid] = (pending[sid] ?? 0) + 1;
+              if (data.isDeleted !== true) {
+                total[sid] = (total[sid] ?? 0) + 1;
+                if (data.status === 'pending') {
+                  pending[sid] = (pending[sid] ?? 0) + 1;
+                }
               }
             });
 

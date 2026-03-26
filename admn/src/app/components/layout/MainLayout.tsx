@@ -21,7 +21,8 @@ import {
   UserCog,
   Megaphone,
   CalendarDays,
-  TrendingUp
+  TrendingUp,
+  ArrowDownUp,
 } from 'lucide-react';
 import { authService } from '@/services/authService';
 
@@ -40,6 +41,7 @@ const navItems = [
   { icon: Megaphone, label: 'Announcement Management', path: '/announcements', roles: ['super_admin'] },
   { icon: Award, label: 'Certificate Generation', path: '/certificate-generation', roles: ['super_admin', 'admin'] },
   { icon: Wallet, label: 'Wallet Management', path: '/wallet', roles: ['super_admin'] },
+  { icon: ArrowDownUp, label: 'Withdrawal Requests', path: '/withdrawals', roles: ['super_admin'] },
   { icon: TrendingUp, label: 'Commission Settings', path: '/commission-settings', roles: ['super_admin'] },
   { icon: Settings, label: 'Registration Settings', path: '/registration-settings', roles: ['super_admin'] },
   { icon: Gift, label: 'Refer & Earn', path: '/refer-earn', roles: ['super_admin'] },

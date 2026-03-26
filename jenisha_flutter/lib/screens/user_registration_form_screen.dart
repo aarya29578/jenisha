@@ -37,6 +37,14 @@ class _UserRegistrationFormScreenState
   final _pincodeController = TextEditingController();
   final _referralCodeController = TextEditingController();
 
+  // Payment details collected during registration
+  String _regPaymentMethod = 'upi';
+  final _upiIdRegController = TextEditingController();
+  final _bankNameController = TextEditingController();
+  final _bankAccountController = TextEditingController();
+  final _bankIfscController = TextEditingController();
+  final _bankHolderNameController = TextEditingController();
+
   // Referral code validation state
   bool _referralCodeChecking = false;
   String? _referralCodeStatus; // null=unchecked, 'valid', 'invalid'
@@ -116,6 +124,11 @@ class _UserRegistrationFormScreenState
     _stateController.dispose();
     _pincodeController.dispose();
     _referralCodeController.dispose();
+    _upiIdRegController.dispose();
+    _bankNameController.dispose();
+    _bankAccountController.dispose();
+    _bankIfscController.dispose();
+    _bankHolderNameController.dispose();
     super.dispose();
   }
 
@@ -395,6 +408,30 @@ class _UserRegistrationFormScreenState
 
       print('✅ User registration saved successfully');
       print('   Documents uploaded: ${_uploadedDocuments.length}');
+
+      // Save payment method details (merge — never overwrites other fields)
+      final Map<String, dynamic> paymentData = {
+        'paymentMethod': _regPaymentMethod,
+      };
+      if (_regPaymentMethod == 'upi') {
+        final upiVal = _upiIdRegController.text.trim();
+        if (upiVal.isNotEmpty) paymentData['upiId'] = upiVal;
+      } else {
+        final bankMap = <String, String>{};
+        final acc = _bankAccountController.text.trim();
+        final ifsc = _bankIfscController.text.trim().toUpperCase();
+        final bankNm = _bankNameController.text.trim();
+        final holder = _bankHolderNameController.text.trim();
+        if (acc.isNotEmpty) bankMap['accountNumber'] = acc;
+        if (ifsc.isNotEmpty) bankMap['ifsc'] = ifsc;
+        if (bankNm.isNotEmpty) bankMap['bankName'] = bankNm;
+        if (holder.isNotEmpty) bankMap['holderName'] = holder;
+        if (bankMap.isNotEmpty) paymentData['bankDetails'] = bankMap;
+      }
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set(paymentData, SetOptions(merge: true));
 
       if (!mounted) return;
 
@@ -731,6 +768,135 @@ class _UserRegistrationFormScreenState
               child: Text('Invalid referral code',
                   style: TextStyle(fontSize: 12, color: Colors.red.shade700)),
             ),
+          const SizedBox(height: 16),
+          const Divider(),
+          const SizedBox(height: 12),
+          // ── Payment Details ───────────────────────────────────
+          Text(
+            localizations.get('payment_details'),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF333333),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            localizations.get('select_payment_method'),
+            style: const TextStyle(fontSize: 13, color: Color(0xFF666666)),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _regPaymentMethod = 'upi'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _regPaymentMethod == 'upi'
+                          ? Theme.of(context).primaryColor
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Theme.of(context).primaryColor),
+                    ),
+                    child: Text(
+                      localizations.get('upi_transfer'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: _regPaymentMethod == 'upi'
+                            ? Colors.white
+                            : Theme.of(context).primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _regPaymentMethod = 'bank'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _regPaymentMethod == 'bank'
+                          ? Theme.of(context).primaryColor
+                          : Colors.white,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Theme.of(context).primaryColor),
+                    ),
+                    child: Text(
+                      localizations.get('bank_transfer'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: _regPaymentMethod == 'bank'
+                            ? Colors.white
+                            : Theme.of(context).primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (_regPaymentMethod == 'upi') ...[
+            TextFormField(
+              controller: _upiIdRegController,
+              decoration: InputDecoration(
+                labelText: localizations.get('upi_id'),
+                hintText: localizations.get('enter_upi_id'),
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
+              ),
+            ),
+          ] else ...[
+            TextFormField(
+              controller: _bankNameController,
+              decoration: InputDecoration(
+                labelText: localizations.get('bank_name'),
+                hintText: localizations.get('enter_bank_name'),
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.account_balance_outlined),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _bankHolderNameController,
+              decoration: InputDecoration(
+                labelText: localizations.get('account_holder_name'),
+                hintText: localizations.get('enter_holder_name'),
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _bankAccountController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: localizations.get('bank_account_number'),
+                hintText: localizations.get('enter_account_number'),
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.credit_card),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _bankIfscController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                labelText: localizations.get('ifsc_code'),
+                hintText: localizations.get('enter_ifsc'),
+                border: const OutlineInputBorder(),
+                prefixIcon: const Icon(Icons.code),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
         ],
       ),

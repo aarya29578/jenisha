@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Search, Eye, UserCheck, UserX, Ban, Trash2 } from 'lucide-react';
 import { pendingUsersService, UserData, userApprovalService } from '@/services/firebaseService';
 
 export default function AgentManagement() {
   const [allUsers, setAllUsers] = useState<UserData[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('All');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [filterStatus, setFilterStatus] = useState(() => searchParams.get('status') ?? 'All');
   const [loading, setLoading] = useState(true);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
@@ -121,7 +122,14 @@ export default function AgentManagement() {
             {['All', 'Approved', 'Pending', 'Rejected', 'Blocked'].map((status) => (
               <button
                 key={status}
-                onClick={() => setFilterStatus(status)}
+                onClick={() => {
+                  setFilterStatus(status);
+                  if (status === 'All') {
+                    setSearchParams({});
+                  } else {
+                    setSearchParams({ status });
+                  }
+                }}
                 className={`
                   px-4 py-2 rounded text-sm transition-colors
                   ${filterStatus === status

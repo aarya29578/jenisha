@@ -68,6 +68,7 @@ class _WalletScreenState extends State<WalletScreen> {
 
   // Plain state — rebuilt via setState so no broadcast-stream re-subscribe issue.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergedTxns = [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _withdrawals = [];
   bool _txnLoading = true;
   int _totalReferredUsers = 0;
 
@@ -135,23 +136,35 @@ class _WalletScreenState extends State<WalletScreen> {
     }
   }
 
-  /// Merge _agentDocs + _userDocs, sort newest-first, push into state.
+  /// Merge _agentDocs + _userDocs, split withdrawals out, sort newest-first.
   void _publishMerged() {
     if (!mounted) return;
-    final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[
+    final all = <QueryDocumentSnapshot<Map<String, dynamic>>>[
       ..._agentDocs.values,
       ..._userDocs.values,
     ];
-    merged.sort((a, b) {
+    int cmp(QueryDocumentSnapshot<Map<String, dynamic>> a,
+        QueryDocumentSnapshot<Map<String, dynamic>> b) {
       final aTs = a.data()['createdAt'] as Timestamp?;
       final bTs = b.data()['createdAt'] as Timestamp?;
       if (aTs == null && bTs == null) return 0;
       if (aTs == null) return 1;
       if (bTs == null) return -1;
       return bTs.compareTo(aTs);
-    });
+    }
+
+    final withdrawals = all
+        .where((d) => (d.data()['type'] as String?) == 'withdrawal')
+        .toList()
+      ..sort(cmp);
+    final regular = all
+        .where((d) => (d.data()['type'] as String?) != 'withdrawal')
+        .toList()
+      ..sort(cmp);
+
     setState(() {
-      _mergedTxns = merged;
+      _mergedTxns = regular;
+      _withdrawals = withdrawals;
       _txnLoading = false;
     });
   }
@@ -162,6 +175,287 @@ class _WalletScreenState extends State<WalletScreen> {
     _userSub?.cancel();
     _referSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _showWithdrawSheet(double walletBalance) async {
+    final loc = AppLocalizations.of(context);
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    // Load payment details from profile
+    final userDoc = await _db.collection('users').doc(user.uid).get();
+    final userData = userDoc.data();
+    final details = userData?['withdrawalDetails'] as Map<String, dynamic>?;
+
+    if (!mounted) return;
+
+    if (details == null ||
+        ((details['upiId'] as String? ?? '').isEmpty &&
+            (details['accountNumber'] as String? ?? '').isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(loc.get('please_add_payment_details')),
+          backgroundColor: const Color(0xFFE53935),
+        ),
+      );
+      return;
+    }
+
+    final amountController = TextEditingController();
+    String errorText = '';
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setModalState) {
+          final method = details['method'] as String? ?? 'upi';
+          final isUpi = method == 'upi';
+
+          return Padding(
+            padding:
+                EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDDDDDD),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    loc.get('withdrawal_request'),
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${loc.get('wallet_balance')}: ₹${walletBalance.toStringAsFixed(0)}',
+                    style:
+                        const TextStyle(fontSize: 13, color: Color(0xFF888888)),
+                  ),
+                  const SizedBox(height: 20),
+                  // Payment method summary
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F5F5),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isUpi
+                              ? Icons.account_balance_wallet_outlined
+                              : Icons.account_balance_outlined,
+                          size: 20,
+                          color: const Color(0xFF555555),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                isUpi
+                                    ? loc.get('upi_transfer')
+                                    : loc.get('bank_transfer'),
+                                style: const TextStyle(
+                                    fontSize: 12, color: Color(0xFF888888)),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                isUpi
+                                    ? (details['upiId'] as String? ?? '')
+                                    : '${details['holderName'] ?? ''} · ${details['accountNumber'] ?? ''} · ${details['ifscCode'] ?? ''}',
+                                style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                    color: Color(0xFF222222)),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Amount input
+                  TextField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: loc.get('withdraw_amount'),
+                      prefixText: '₹ ',
+                      hintText: loc.get('enter_amount'),
+                      errorText: errorText.isNotEmpty ? errorText : null,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        borderSide: BorderSide(
+                            color: Theme.of(context).primaryColor, width: 1.5),
+                      ),
+                    ),
+                    onChanged: (_) {
+                      if (errorText.isNotEmpty) {
+                        setModalState(() => errorText = '');
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        final amt =
+                            double.tryParse(amountController.text.trim());
+                        if (amt == null || amt <= 0) {
+                          setModalState(
+                              () => errorText = loc.get('enter_amount'));
+                          return;
+                        }
+                        if (amt < 100) {
+                          setModalState(
+                              () => errorText = loc.get('min_withdrawal'));
+                          return;
+                        }
+                        if (amt > walletBalance) {
+                          setModalState(() =>
+                              errorText = loc.get('insufficient_balance'));
+                          return;
+                        }
+                        Navigator.pop(ctx);
+                        await _submitWithdrawal(amt, details, userData);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      child: Text(loc.get('submit_request'),
+                          style: const TextStyle(fontSize: 15)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  Future<void> _submitWithdrawal(
+    double amount,
+    Map<String, dynamic> paymentDetails,
+    Map<String, dynamic>? userData,
+  ) async {
+    final loc = AppLocalizations.of(context);
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await _db.runTransaction((txn) async {
+        final userRef = _db.collection('users').doc(user.uid);
+        final snap = await txn.get(userRef);
+        final currentBalance =
+            ((snap.data()?['walletBalance'] ?? 0) as num).toDouble();
+        if (currentBalance < amount) {
+          throw Exception('insufficient_balance');
+        }
+        // Deduct from wallet
+        txn.update(userRef, {'walletBalance': currentBalance - amount});
+        // Record withdrawal request in wallet_transactions
+        // (uses existing 'allow create: if isAuthenticated()' rule)
+        txn.set(_db.collection('wallet_transactions').doc(), {
+          'agentId': user.uid,
+          'agentName': userData?['fullName'] ?? userData?['name'] ?? 'Unknown',
+          'userId': user.uid,
+          'userName': userData?['fullName'] ?? userData?['name'] ?? 'Unknown',
+          'userPhone': userData?['phone'] ?? '',
+          'amount': amount,
+          'type': 'withdrawal',
+          'withdrawalStatus': 'pending',
+          'paymentMethod': paymentDetails['method'] ?? 'upi',
+          'paymentDetails': paymentDetails,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(loc.get('withdrawal_submitted')),
+            backgroundColor: const Color(0xFF4CAF50),
+          ),
+        );
+      }
+    } on Exception catch (e) {
+      final msg = e.toString().contains('insufficient_balance')
+          ? loc.get('insufficient_balance')
+          : 'Failed to submit withdrawal. Please try again.';
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(msg), backgroundColor: const Color(0xFFE53935)),
+        );
+      }
+    }
+  }
+
+  Widget _buildWithdrawalStatusBadge(String status) {
+    Color bg, fg;
+    String label;
+    switch (status) {
+      case 'processing':
+        bg = const Color(0xFFE3F2FD);
+        fg = const Color(0xFF1E88E5);
+        label = AppLocalizations.of(context).get('withdrawal_processing');
+        break;
+      case 'approved':
+        bg = const Color(0xFFE8F5E9);
+        fg = const Color(0xFF4CAF50);
+        label = AppLocalizations.of(context).get('withdrawal_approved');
+        break;
+      case 'rejected':
+        bg = const Color(0xFFFFEBEE);
+        fg = const Color(0xFFF44336);
+        label = AppLocalizations.of(context).get('withdrawal_rejected');
+        break;
+      default:
+        bg = const Color(0xFFFFF8E1);
+        fg = const Color(0xFFFF9800);
+        label = AppLocalizations.of(context).get('withdrawal_pending');
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration:
+          BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
+      child: Text(label,
+          style:
+              TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+    );
   }
 
   Widget _buildEarningRow(
@@ -286,7 +580,8 @@ class _WalletScreenState extends State<WalletScreen> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: () {},
+                                      onPressed: () =>
+                                          _showWithdrawSheet(walletBalance),
                                       icon: const Icon(Icons.arrow_upward),
                                       label: Text(loc.get('withdraw')),
                                       style: ElevatedButton.styleFrom(
@@ -599,6 +894,187 @@ class _WalletScreenState extends State<WalletScreen> {
                             }).toList(),
                           );
                         }),
+                        const SizedBox(height: 24),
+
+                        // ── Withdrawal History ───────────────────────────────
+                        Text(loc.get('withdrawal_history'),
+                            style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF333333))),
+                        const SizedBox(height: 12),
+                        if (_withdrawals.isEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.only(top: 8, bottom: 8),
+                              child: Text(
+                                loc.get('no_withdrawals'),
+                                style:
+                                    const TextStyle(color: Color(0xFF888888)),
+                              ),
+                            ),
+                          )
+                        else
+                          Column(
+                            children: _withdrawals.map((docSnap) {
+                              final d = docSnap.data();
+                              final amt =
+                                  ((d['amount'] ?? 0) as num).toDouble();
+                              final status =
+                                  d['withdrawalStatus'] as String? ?? 'pending';
+                              final method =
+                                  d['paymentMethod'] as String? ?? 'upi';
+                              final ts = d['createdAt'] as Timestamp?;
+                              final payDetails =
+                                  d['paymentDetails'] as Map<String, dynamic>?;
+                              final payInfo = method == 'upi'
+                                  ? (payDetails?['upiId'] as String? ?? '')
+                                  : (payDetails?['accountNumber'] as String? ??
+                                      '');
+                              final dateStr = ts != null
+                                  ? () {
+                                      final dt = ts.toDate();
+                                      final months = [
+                                        'Jan',
+                                        'Feb',
+                                        'Mar',
+                                        'Apr',
+                                        'May',
+                                        'Jun',
+                                        'Jul',
+                                        'Aug',
+                                        'Sep',
+                                        'Oct',
+                                        'Nov',
+                                        'Dec'
+                                      ];
+                                      final h = dt.hour;
+                                      final m =
+                                          dt.minute.toString().padLeft(2, '0');
+                                      final period = h >= 12 ? 'PM' : 'AM';
+                                      final h12 = h % 12 == 0 ? 12 : h % 12;
+                                      return _localizeDate(
+                                          '${dt.day} ${months[dt.month - 1]} ${dt.year}, $h12:$m $period',
+                                          loc);
+                                    }()
+                                  : '—';
+                              final rejectionReason =
+                                  d['rejectionReason'] as String?;
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                        color: Color(0x12000000),
+                                        blurRadius: 6,
+                                        offset: Offset(0, 2))
+                                  ],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          width: 44,
+                                          height: 44,
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFFF3E0),
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                          ),
+                                          child: const Icon(
+                                            Icons.arrow_upward,
+                                            color: Color(0xFFFF9800),
+                                            size: 22,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${loc.get('withdraw')} · ${method == 'upi' ? loc.get('upi_transfer') : loc.get('bank_transfer')}',
+                                                style: const TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFF222222)),
+                                              ),
+                                              if (payInfo.isNotEmpty) ...[
+                                                const SizedBox(height: 2),
+                                                Text(payInfo,
+                                                    style: const TextStyle(
+                                                        fontSize: 12,
+                                                        color:
+                                                            Color(0xFF555555))),
+                                              ],
+                                              const SizedBox(height: 3),
+                                              Text(dateStr,
+                                                  style: const TextStyle(
+                                                      fontSize: 11,
+                                                      color:
+                                                          Color(0xFF999999))),
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              '-₹${_toDevanagari(amt.toStringAsFixed(0), loc)}',
+                                              style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Color(0xFFDC2626)),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            _buildWithdrawalStatusBadge(status),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    if (status == 'rejected' &&
+                                        rejectionReason != null &&
+                                        rejectionReason.isNotEmpty) ...[
+                                      const SizedBox(height: 10),
+                                      Container(
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFFEBEE),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.info_outline,
+                                                size: 14,
+                                                color: Color(0xFFF44336)),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                '${loc.get('rejection_reason')}: $rejectionReason',
+                                                style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Color(0xFFB71C1C)),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
                       ],
                     ),
                   ),

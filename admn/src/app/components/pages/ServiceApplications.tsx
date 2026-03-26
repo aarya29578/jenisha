@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, X, Filter, Search } from 'lucide-react';
+import { ArrowLeft, X, Filter, Search, Trash2 } from 'lucide-react';
 import { getApplicantName } from '../../../utils/getApplicantName';
 import {
   getFirestore,
@@ -9,6 +9,8 @@ import {
   where,
   onSnapshot,
   Timestamp,
+  updateDoc,
+  doc,
 } from 'firebase/firestore';
 import { initializeApp, getApps } from 'firebase/app';
 
@@ -51,6 +53,7 @@ interface ServiceApplication {
   >;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
+  isDeleted?: boolean;
 }
 
 
@@ -97,6 +100,8 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
 
   const [filterStatus, setFilterStatus] = useState<FilterValue>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // ── Subscribe to applications for this service ─────────────────────────────
   useEffect(() => {
@@ -109,27 +114,30 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
         where('serviceId', '==', serviceId)
       ),
       (snapshot) => {
-        const records: ServiceApplication[] = snapshot.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            userId: data.userId,
-            serviceId: data.serviceId,
-            status: data.status ?? 'pending',
-            userName: data.userName ?? data.fullName,
-            fullName: data.fullName,
-            phone: data.phone,
-            email: data.email,
-            serviceName: data.serviceName,
-            documents: data.documents ?? {},
-            fieldData: data.fieldData ?? {},
-            fields: data.fields ?? [],
-            filledFormUrl: data.filledFormUrl ?? '',
-            documentsMeta: data.documentsMeta ?? {},
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt,
-          } as ServiceApplication;
-        });
+        const records: ServiceApplication[] = snapshot.docs
+          .map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              userId: data.userId,
+              serviceId: data.serviceId,
+              status: data.status ?? 'pending',
+              userName: data.userName ?? data.fullName,
+              fullName: data.fullName,
+              phone: data.phone,
+              email: data.email,
+              serviceName: data.serviceName,
+              documents: data.documents ?? {},
+              fieldData: data.fieldData ?? {},
+              fields: data.fields ?? [],
+              filledFormUrl: data.filledFormUrl ?? '',
+              documentsMeta: data.documentsMeta ?? {},
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt,
+              isDeleted: data.isDeleted ?? false,
+            } as ServiceApplication;
+          })
+          .filter((r) => r.isDeleted !== true);
         setAllApplications(
           records.sort((a, b) => {
             const ta = a.createdAt?.toMillis() ?? 0;
@@ -149,6 +157,20 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
     return unsubscribe;
   }, [serviceId]);
 
+  // ── Delete handler ────────────────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!confirmDeleteId) return;
+    setIsDeleting(true);
+    try {
+      await updateDoc(doc(db, 'serviceApplications', confirmDeleteId), { isDeleted: true });
+    } catch (err) {
+      console.error('Error soft-deleting application:', err);
+    } finally {
+      setIsDeleting(false);
+      setConfirmDeleteId(null);
+    }
+  };
+
   // ── Filtered list ──────────────────────────────────────────────────────────
   const applications = useMemo(() => {
     let result = allApplications;
@@ -166,8 +188,7 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
   }, [allApplications, filterStatus, searchTerm]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-6">
+  return (    <>    <div className="space-y-6">
       {/* Header / breadcrumb */}
       <div className="flex items-center gap-3">
         <button
@@ -272,6 +293,13 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
                     <span>Docs: {docCount}</span>
                   </div>
                 </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(app.id); }}
+                  className="p-2 text-gray-500 hover:text-red-400 transition-colors flex-shrink-0"
+                  title="Delete application"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
                 <ArrowLeft className="w-4 h-4 text-gray-500 rotate-180 flex-shrink-0" />
               </div>
             );
@@ -279,5 +307,34 @@ export default function ServiceApplications({ serviceId, serviceName, categoryNa
         </div>
       </div>
     </div>
+
+      {/* Delete confirmation dialog */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#0a0f14] border border-[#1a2130] rounded-lg p-6 w-full max-w-sm shadow-xl mx-4">
+            <h3 className="text-base text-gray-100 mb-2">Delete Application?</h3>
+            <p className="text-sm text-gray-400 mb-6">
+              This application will be removed from the list. This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm text-gray-300 bg-[#0f1518] hover:bg-[#13171a] rounded transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded transition-colors disabled:opacity-50"
+              >
+                {isDeleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

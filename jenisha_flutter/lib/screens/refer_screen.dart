@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../l10n/app_localizations.dart';
+import 'referral_list_screen.dart';
 
 class ReferScreen extends StatefulWidget {
   const ReferScreen({Key? key}) : super(key: key);
@@ -360,48 +361,73 @@ class _ReferScreenState extends State<ReferScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFAFAFA),
+                    child: Material(
+                      color: const Color(0xFFFAFAFA),
+                      borderRadius: BorderRadius.circular(8),
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                        onTap: _referralCode.isEmpty
+                            ? null
+                            : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => ReferralListScreen(
+                                      referralCode: _referralCode,
+                                    ),
+                                  ),
+                                ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.people,
-                                  color: Color(0xFF888888), size: 16),
-                              const SizedBox(width: 6),
+                              Row(
+                                children: [
+                                  const Icon(Icons.people,
+                                      color: Color(0xFF888888), size: 16),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      localizations.get('total_referrals'),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        color: Color(0xFF888888),
+                                      ),
+                                    ),
+                                  ),
+                                  const Icon(Icons.chevron_right,
+                                      color: Color(0xFFBBBBBB), size: 16),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              _statsLoading
+                                  ? const SizedBox(
+                                      height: 28,
+                                      width: 28,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Color(0xFF888888),
+                                      ),
+                                    )
+                                  : Text(
+                                      '$_totalReferrals',
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF333333),
+                                      ),
+                                    ),
+                              const SizedBox(height: 4),
                               Text(
-                                localizations.get('total_referrals'),
+                                localizations.get('view_referrals'),
                                 style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF888888),
+                                  fontSize: 11,
+                                  color: Color(0xFF4C4CFF),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          _statsLoading
-                              ? const SizedBox(
-                                  height: 28,
-                                  width: 28,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Color(0xFF888888),
-                                  ),
-                                )
-                              : Text(
-                                  '$_totalReferrals',
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF333333),
-                                  ),
-                                ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

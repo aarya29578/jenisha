@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Users, UserCheck, UserX, AlertCircle, FileText, Wallet, ChevronRight } from 'lucide-react';
 import { dashboardService, DashboardStats } from '@/services/firebaseService';
 import CategoryApplications from './CategoryApplications';
@@ -178,7 +179,10 @@ export default function Dashboard() {
         (snapshot) => {
           const counts: Record<string, number> = {};
           snapshot.forEach((d) => {
-            const sid: string = d.data().serviceId || '';
+            const data = d.data();
+            if (data.isDeleted === true) return;
+            if (data.status !== 'pending') return;
+            const sid: string = data.serviceId || '';
             const cid = serviceCategoryMap[sid] || '';
             if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
           });
@@ -215,13 +219,15 @@ export default function Dashboard() {
     };
   }, []);
 
+  const navigate = useNavigate();
+
   const displayStats = [
-    { icon: Users, label: 'Total Agents', value: stats.totalAgents.toLocaleString(), color: '#4C4CFF', bgColor: '#E8E8FF' },
-    { icon: AlertCircle, label: 'Pending Approvals', value: stats.pendingApprovals.toLocaleString(), color: '#FF9800', bgColor: '#FFF4E6' },
-    { icon: UserCheck, label: 'Active Agents', value: stats.activeAgents.toLocaleString(), color: '#4CAF50', bgColor: '#E8F5E9' },
-    { icon: UserX, label: 'Blocked Agents', value: stats.blockedAgents.toLocaleString(), color: '#F44336', bgColor: '#FFEBEE' },
-    { icon: FileText, label: 'Documents Pending', value: stats.documentsPending.toLocaleString(), color: '#9C27B0', bgColor: '#F3E5F5' },
-    { icon: Wallet, label: 'Total Wallet Balance', value: `₹${stats.totalWalletBalance.toLocaleString()}`, color: '#00BCD4', bgColor: '#E0F7FA' },
+    { icon: Users, label: 'Total Agents', value: stats.totalAgents.toLocaleString(), color: '#4C4CFF', href: '/agents' },
+    { icon: AlertCircle, label: 'Pending Approvals', value: stats.pendingApprovals.toLocaleString(), color: '#FF9800', href: '/agent-approval' },
+    { icon: UserCheck, label: 'Active Agents', value: stats.activeAgents.toLocaleString(), color: '#4CAF50', href: '/agents?status=Approved' },
+    { icon: UserX, label: 'Blocked Agents', value: stats.blockedAgents.toLocaleString(), color: '#F44336', href: '/agents?status=Blocked' },
+    { icon: FileText, label: 'Documents Pending', value: stats.documentsPending.toLocaleString(), color: '#9C27B0', href: '/agent-approval' },
+    { icon: Wallet, label: 'Total Wallet Balance', value: `₹${stats.totalWalletBalance.toLocaleString()}`, color: '#00BCD4', href: '/wallet' },
   ];
 
   return (
@@ -248,19 +254,21 @@ export default function Dashboard() {
         {displayStats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <div
+            <button
               key={stat.label}
-              className="rounded-lg p-5 shadow-md text-white flex items-start justify-between"
+              onClick={() => navigate(stat.href)}
+              className="group rounded-lg p-5 shadow-md text-white flex items-start justify-between w-full text-left transition-all duration-200 hover:opacity-90 hover:scale-[1.02] hover:shadow-lg active:scale-[0.99] cursor-pointer"
               style={{ backgroundColor: stat.color }}
             >
               <div className="flex-1 pr-4">
                 <p className="text-sm text-white/90 mb-2">{stat.label}</p>
                 <p className="text-2xl font-semibold">{stat.value}</p>
+                <p className="text-xs text-white/60 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">View Details →</p>
               </div>
               <div className="w-12 h-12 rounded flex items-center justify-center bg-white/10">
                 <Icon className="w-6 h-6 text-white" />
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -297,7 +305,7 @@ export default function Dashboard() {
                     <p className="text-2xl font-semibold">
                       {cat.applicationCount.toLocaleString()}
                     </p>
-                    <p className="text-xs text-white/70 mt-1">Tap to review applications</p>
+                    <p className="text-xs text-white/70 mt-1">pending applications</p>
                   </div>
                   <div className="flex flex-col items-center gap-2">
                     <div className="w-12 h-12 rounded flex items-center justify-center bg-white/10">

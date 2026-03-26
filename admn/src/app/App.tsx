@@ -12,6 +12,7 @@ import AnnouncementManagement from '@/app/components/pages/AnnouncementManagemen
 import ApplicationDetail from '@/app/components/pages/ApplicationDetail';
 import CertificateGeneration from '@/app/components/pages/CertificateGeneration';
 import WalletManagement from '@/app/components/pages/WalletManagement';
+import WithdrawalManagement from '@/app/components/pages/WithdrawalManagement';
 import CommissionSettings from '@/app/components/pages/CommissionSettings';
 import ReferEarn from '@/app/components/pages/ReferEarn';
 import TermsManagement from '@/app/components/pages/TermsManagement';
@@ -160,6 +161,12 @@ function App() {
                   <Route path="/wallet" element={
                     <RoleGuard allowedRoles={['super_admin']}>
                       <WalletManagement />
+                    </RoleGuard>
+                  } />
+                  
+                  <Route path="/withdrawals" element={
+                    <RoleGuard allowedRoles={['super_admin']}>
+                      <WithdrawalManagement />
                     </RoleGuard>
                   } />
                   
