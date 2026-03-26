@@ -622,7 +622,7 @@ class FirestoreService {
         final createdAtA = a['createdAt'] as Timestamp?;
         final createdAtB = b['createdAt'] as Timestamp?;
         if (createdAtA != null && createdAtB != null) {
-          return createdAtB.compareTo(createdAtA);
+          return createdAtA.compareTo(createdAtB);
         }
         return 0;
       });
@@ -652,7 +652,7 @@ class FirestoreService {
         final createdAtA = a['createdAt'] as Timestamp?;
         final createdAtB = b['createdAt'] as Timestamp?;
         if (createdAtA != null && createdAtB != null) {
-          return createdAtB.compareTo(createdAtA);
+          return createdAtA.compareTo(createdAtB);
         }
         return 0;
       });
@@ -687,7 +687,7 @@ class FirestoreService {
         final createdAtB = b['createdAt'] as Timestamp?;
 
         if (createdAtA != null && createdAtB != null) {
-          return createdAtB.compareTo(createdAtA);
+          return createdAtA.compareTo(createdAtB);
         }
 
         return 0;

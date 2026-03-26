@@ -64,7 +64,6 @@ export interface ServiceWithCategory extends Service {
 export interface DocumentRequirement {
   id: string;
   serviceId: string; // Reference to services collection
-          orderBy('createdAt', 'asc')
   required: boolean;
   type?: string;       // e.g. "Image Upload", "PDF Upload", "Text"
   maxSizeKB?: number;  // Only applicable when type === "Image Upload" (range: 500–5120 KB)
@@ -112,7 +111,6 @@ export const categoryService = {
       throw error;
     }
   },
-        return timeA - timeB;
   // Upload category custom logo to Hostinger
   uploadCategoryLogo: async (categoryId: string, file: File): Promise<string> => {
     try {
@@ -248,7 +246,7 @@ export const categoryService = {
               const timeB = 'toMillis' in b.createdAt
                 ? (b.createdAt as any).toMillis()
                 : (b.createdAt as any).getTime();
-              return timeB - timeA;
+              return timeA - timeB;
             }
             return 0;
           });
@@ -296,7 +294,7 @@ export const categoryService = {
             });
           });
 
-          // Sort by order field first, then by createdAt descending (in memory)
+          // Sort by order field first, then by createdAt ascending (in memory)
           categories.sort((a, b) => {
             const orderDiff = (a.order || 0) - (b.order || 0);
             if (orderDiff !== 0) return orderDiff;
@@ -308,7 +306,7 @@ export const categoryService = {
               const timeB = 'toMillis' in b.createdAt
                 ? (b.createdAt as any).toMillis()
                 : (b.createdAt as any).getTime();
-              return timeB - timeA;
+              return timeA - timeB;
             }
             return 0;
           });
