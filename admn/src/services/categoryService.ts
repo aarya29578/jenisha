@@ -64,7 +64,7 @@ export interface ServiceWithCategory extends Service {
 export interface DocumentRequirement {
   id: string;
   serviceId: string; // Reference to services collection
-  documentName: string;
+          orderBy('createdAt', 'asc')
   required: boolean;
   type?: string;       // e.g. "Image Upload", "PDF Upload", "Text"
   maxSizeKB?: number;  // Only applicable when type === "Image Upload" (range: 500–5120 KB)
@@ -112,7 +112,7 @@ export const categoryService = {
       throw error;
     }
   },
-
+        return timeA - timeB;
   // Upload category custom logo to Hostinger
   uploadCategoryLogo: async (categoryId: string, file: File): Promise<string> => {
     try {
@@ -474,7 +474,8 @@ export const serviceManagementService = {
       
       const q = query(
         collection(firestore, 'services'),
-        where('isActive', '==', true)
+        where('isActive', '==', true),
+        orderBy('createdAt', 'asc')
       );
 
       unsubscribeServices = onSnapshot(
@@ -520,7 +521,7 @@ export const serviceManagementService = {
             });
           });
 
-          // Sort by createdAt descending (in JavaScript, not Firestore)
+          // Ensure client-side stable ordering: createdAt ascending
           services.sort((a, b) => {
             if (a.createdAt && b.createdAt) {
               const timeA = 'toMillis' in a.createdAt
@@ -529,7 +530,7 @@ export const serviceManagementService = {
               const timeB = 'toMillis' in b.createdAt
                 ? (b.createdAt as any).toMillis()
                 : (b.createdAt as any).getTime();
-              return timeB - timeA;
+              return timeA - timeB;
             }
             return 0;
           });
@@ -798,8 +799,8 @@ export const serviceManagementService = {
     onError?: (error: Error) => void
   ) => {
     try {
-      // Query all services without orderBy to avoid index issues
-      const q = query(collection(firestore, 'services'));
+      // Query all services ordered by createdAt ascending so newer services appear at the bottom
+      const q = query(collection(firestore, 'services'), orderBy('createdAt', 'asc'));
 
       // Map to store categories by ID for lookup
       const categoriesMap = new Map<string, string>();
@@ -859,7 +860,7 @@ export const serviceManagementService = {
               });
             });
 
-            // Sort by createdAt descending (most recent first)
+            // Ensure client-side stable ordering: createdAt ascending
             services.sort((a, b) => {
               if (a.createdAt && b.createdAt) {
                 const timeA = 'toMillis' in a.createdAt
@@ -868,7 +869,7 @@ export const serviceManagementService = {
                 const timeB = 'toMillis' in b.createdAt
                   ? (b.createdAt as any).toMillis()
                   : (b.createdAt as any).getTime();
-                return timeB - timeA;
+                return timeA - timeB;
               }
               return 0;
             });

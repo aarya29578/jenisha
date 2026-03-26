@@ -703,22 +703,24 @@ class FirestoreService {
   /// Get services for a specific category with real-time listener (from flat 'services' collection)
   Stream<List<Map<String, dynamic>>> getActiveServicesForCategory(
       String categoryId) {
+    // Query services ordered by createdAt ascending so newer services appear at the bottom
     return _firestore
         .collection('services')
         .where('categoryId', isEqualTo: categoryId)
         .where('isActive', isEqualTo: true)
+        .orderBy('createdAt', descending: false)
         .snapshots()
         .map((snapshot) {
       final services =
           snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
 
-      // Sort by createdAt descending (most recent first)
+      // Ensure stable client-side ordering fallback: sort by createdAt ascending
       services.sort((a, b) {
         final createdAtA = a['createdAt'] as Timestamp?;
         final createdAtB = b['createdAt'] as Timestamp?;
 
         if (createdAtA != null && createdAtB != null) {
-          return createdAtB.compareTo(createdAtA);
+          return createdAtA.compareTo(createdAtB);
         }
 
         return 0;
@@ -837,6 +839,31 @@ class FirestoreService {
       return applicationId;
     } catch (e) {
       print('❌ Error ensuring service application: $e');
+      rethrow;
+    }
+  }
+
+  /// Create a new service in 'services' collection with server timestamp
+  /// Note: Admin panel should set `createdAt: FieldValue.serverTimestamp()` when creating services.
+  Future<String> createService({
+    required String categoryId,
+    required String name,
+    required num price,
+    bool isActive = true,
+    Map<String, dynamic>? extra,
+  }) async {
+    try {
+      final docRef = await _firestore.collection('services').add({
+        'categoryId': categoryId,
+        'name': name,
+        'price': price,
+        'isActive': isActive,
+        'createdAt': FieldValue.serverTimestamp(),
+        ...?extra,
+      });
+      return docRef.id;
+    } catch (e) {
+      print('❌ Error creating service: $e');
       rethrow;
     }
   }

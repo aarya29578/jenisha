@@ -867,7 +867,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   controller: _bankIfscEditController,
                   label: loc.get('ifsc_code'),
                   hint: loc.get('enter_ifsc'),
-                  icon: Icons.code,
+                  icon: Icons.account_balance_wallet,
                   textCapitalization: TextCapitalization.characters,
                 ),
               ],
