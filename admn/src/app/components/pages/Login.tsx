@@ -68,7 +68,7 @@ export default function Login({ onLogin }: LoginProps) {
             <Lock className="w-12 h-12 text-white" />
           </div>
           <h1 className="text-2xl text-[#1a1a1a] mb-2">Admin Portal</h1>
-          <p className="text-[#666666]">Agent Management System</p>
+          <p className="text-[#666666] mb-3">Agent Management System</p>
         </div>
 
         {/* Login Card */}
@@ -187,14 +187,21 @@ export default function Login({ onLogin }: LoginProps) {
               )}
             </button>
 
-            <div className="mt-4 text-center text-sm text-[#666666]">
-              By continuing, you agree to our{' '}
+            <div className="flex justify-center gap-3 text-sm mt-3">
               <button
                 type="button"
                 onClick={() => navigate('/terms')}
-                className="font-semibold text-[#4C4CFF] hover:text-[#3737d3]"
+                className="text-blue-600 cursor-pointer hover:underline"
               >
                 Terms & Conditions
+              </button>
+              <span className="text-slate-400">|</span>
+              <button
+                type="button"
+                onClick={() => navigate('/privacy')}
+                className="text-blue-600 cursor-pointer hover:underline"
+              >
+                Privacy Policy
               </button>
             </div>
           </form>

@@ -17,6 +17,7 @@ import CommissionSettings from '@/app/components/pages/CommissionSettings';
 import ReferEarn from '@/app/components/pages/ReferEarn';
 import TermsManagement from '@/app/components/pages/TermsManagement';
 import Terms from '@/app/components/pages/Terms';
+import Privacy from '@/app/components/pages/Privacy';
 import AdminProfile from '@/app/components/pages/AdminProfile';
 import RegistrationSettings from '@/app/components/pages/RegistrationSettings';
 import AppointmentManagement from '@/app/components/pages/AppointmentManagement';
@@ -75,6 +76,7 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route 
           path="/login" 
           element={
