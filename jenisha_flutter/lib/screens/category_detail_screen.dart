@@ -17,6 +17,7 @@ class CategoryDetailScreen extends StatelessWidget {
     final args = ModalRoute.of(context)?.settings.arguments;
     final categoryId =
         (args is Map<String, dynamic>) ? args['id'] as String : '';
+    debugPrint('📂 [CategoryDetailScreen] categoryId="$categoryId" args=$args');
 
     // Get localized category name from arguments
     final languageProvider =

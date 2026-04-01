@@ -290,9 +290,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            // Horizontal Category Chips
-            _buildCategoryChips(),
-
             // Banner Slider Section
             StreamBuilder<List<Map<String, dynamic>>>(
               stream: _firestoreService.getActiveBannersStream(),
@@ -334,7 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
             // Main Services Section Header
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -349,7 +346,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 4),
+
+            // Horizontal Category Chips
+            _buildCategoryChips(),
+
+            const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: StreamBuilder<List<Map<String, dynamic>>>(
@@ -378,11 +379,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
                   final categories = snapshot.data ?? [];
 
-                  // Apply search filter + category chip filter
+                  // Apply search filter + side-category chip filter
                   final filteredCategories = categories.where((category) {
-                    // Category chip filter
+                    // Side-category chip filter: match by sideCategoryId
                     if (_selectedCategoryId != null &&
-                        category['id'] != _selectedCategoryId) {
+                        category['sideCategoryId'] != _selectedCategoryId) {
                       return false;
                     }
                     if (_searchQuery.isEmpty) return true;
@@ -900,7 +901,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Horizontal side-category chip bar ──────────────────────────────────────
+  // ── Horizontal side-category chip bar (positioned below Services title) ────
   Widget _buildCategoryChips() {
     final primaryColor = Theme.of(context).primaryColor;
     return StreamBuilder<List<Map<String, dynamic>>>(
@@ -912,14 +913,13 @@ class _HomeScreenState extends State<HomeScreen> {
         final languageProvider =
             Provider.of<LanguageProvider>(context, listen: false);
 
-        return Container(
-          color: primaryColor,
-          padding: const EdgeInsets.only(bottom: 10),
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
           child: SizedBox(
-            height: 36,
+            height: 40,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: EdgeInsets.zero,
               itemCount: sideCategories.length + 1, // +1 for "All"
               separatorBuilder: (_, __) => const SizedBox(width: 8),
               itemBuilder: (context, index) {
@@ -930,19 +930,17 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 6),
+                          horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? Colors.white
-                            : Colors.white.withOpacity(0.2),
+                        color: isSelected ? primaryColor : Colors.grey.shade100,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: Colors.white.withOpacity(0.5), width: 1),
+                            color: primaryColor.withOpacity(0.3), width: 1),
                       ),
                       child: Text(
                         'All',
                         style: TextStyle(
-                          color: isSelected ? primaryColor : Colors.white,
+                          color: isSelected ? Colors.white : primaryColor,
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
@@ -961,31 +959,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 final isSelected = _selectedCategoryId == scId;
 
                 return GestureDetector(
-                  onTap: () {
-                    // Chip tap → navigate to side-category screen to show
-                    // child categories
-                    Navigator.pushNamed(
-                      context,
-                      '/side-category',
-                      arguments: {'id': scId, 'name': scName},
-                    );
-                  },
+                  onTap: () => setState(() => _selectedCategoryId = scId),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
-                      color: isSelected
-                          ? Colors.white
-                          : Colors.white.withOpacity(0.18),
+                      color: isSelected ? primaryColor : Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: Colors.white.withOpacity(0.5), width: 1),
+                          color: primaryColor.withOpacity(0.3), width: 1),
                     ),
                     child: Text(
                       scName.isEmpty ? 'Category' : scName,
                       style: TextStyle(
-                        color: isSelected ? primaryColor : Colors.white,
+                        color: isSelected ? Colors.white : primaryColor,
                         fontWeight:
                             isSelected ? FontWeight.w700 : FontWeight.w500,
                         fontSize: 13,

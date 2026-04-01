@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -703,34 +704,38 @@ class FirestoreService {
   /// Get services for a specific category with real-time listener (from flat 'services' collection)
   Stream<List<Map<String, dynamic>>> getActiveServicesForCategory(
       String categoryId) {
-    // Query services ordered by createdAt ascending so newer services appear at the bottom
+    debugPrint('🔍 [Services] Querying categoryId="$categoryId"');
+    // NOTE: No .orderBy() here — combining where('isActive') with orderBy('createdAt')
+    // requires a composite Firestore index. We sort client-side instead.
     return _firestore
         .collection('services')
         .where('categoryId', isEqualTo: categoryId)
         .where('isActive', isEqualTo: true)
-        .orderBy('createdAt', descending: false)
         .snapshots()
-        .map((snapshot) {
-      final services =
-          snapshot.docs.map((doc) => {...doc.data(), 'id': doc.id}).toList();
-
-      // Ensure stable client-side ordering fallback: sort by createdAt ascending
-      services.sort((a, b) {
-        final createdAtA = a['createdAt'] as Timestamp?;
-        final createdAtB = b['createdAt'] as Timestamp?;
-
-        if (createdAtA != null && createdAtB != null) {
-          return createdAtA.compareTo(createdAtB);
-        }
-
-        return 0;
-      });
-
-      return services;
-    }).handleError((e) {
-      print('❌ Error listening to services for category: $e');
-      return [];
-    });
+        .transform(StreamTransformer.fromHandlers(
+          handleData: (snapshot, sink) {
+            final services = snapshot.docs
+                .map((doc) => {...doc.data(), 'id': doc.id})
+                .toList();
+            services.sort((a, b) {
+              final createdAtA = a['createdAt'] as Timestamp?;
+              final createdAtB = b['createdAt'] as Timestamp?;
+              if (createdAtA != null && createdAtB != null) {
+                return createdAtA.compareTo(createdAtB);
+              }
+              return 0;
+            });
+            debugPrint(
+                '✅ [Services] Found ${services.length} service(s) for categoryId="$categoryId"');
+            sink.add(services);
+          },
+          handleError: (e, st, sink) {
+            debugPrint(
+                '❌ [Services] Error loading services for categoryId="$categoryId": $e');
+            sink.add(
+                []); // emit empty list so StreamBuilder exits waiting state
+          },
+        ));
   }
 
   /// Get document requirements for a specific service with real-time listener
