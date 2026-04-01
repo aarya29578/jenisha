@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Lock, User, AlertCircle, Shield } from 'lucide-react';
 import { authService } from '@/services/authService';
 
@@ -10,12 +11,20 @@ export default function Login({ onLogin }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [selectedRole, setSelectedRole] = useState<'admin' | 'super_admin'>('admin');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!acceptedTerms) {
+      setError('Please agree to the Terms & Conditions to continue.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -140,10 +149,32 @@ export default function Login({ onLogin }: LoginProps) {
               </div>
             </div>
 
+            {/* Terms Agreement */}
+            <div className="flex items-start gap-3">
+              <input
+                id="acceptTerms"
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-[#d1d5db] text-[#4C4CFF] focus:ring-[#4C4CFF]"
+                disabled={loading}
+              />
+              <label htmlFor="acceptTerms" className="text-sm text-[#666666]">
+                I agree to the{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/terms')}
+                  className="font-semibold text-[#4C4CFF] hover:text-[#3737d3]"
+                >
+                  Terms & Conditions
+                </button>
+              </label>
+            </div>
+
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !acceptedTerms}
               className="w-full bg-[#4C4CFF] text-white py-3 rounded hover:bg-[#3d3dcc] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
@@ -155,6 +186,17 @@ export default function Login({ onLogin }: LoginProps) {
                 'Login to Admin Panel'
               )}
             </button>
+
+            <div className="mt-4 text-center text-sm text-[#666666]">
+              By continuing, you agree to our{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/terms')}
+                className="font-semibold text-[#4C4CFF] hover:text-[#3737d3]"
+              >
+                Terms & Conditions
+              </button>
+            </div>
           </form>
 
           {/* Info Notice */}

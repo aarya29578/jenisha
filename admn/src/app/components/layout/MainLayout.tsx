@@ -45,7 +45,7 @@ const navItems = [
   { icon: TrendingUp, label: 'Commission Settings', path: '/commission-settings', roles: ['super_admin'] },
   { icon: Settings, label: 'Registration Settings', path: '/registration-settings', roles: ['super_admin'] },
   { icon: Gift, label: 'Refer & Earn', path: '/refer-earn', roles: ['super_admin'] },
-  { icon: FileSignature, label: 'Terms & Policies', path: '/terms', roles: ['super_admin'] },
+  { icon: FileSignature, label: 'Terms & Policies', path: '/terms-management', roles: ['super_admin'] },
   { icon: CalendarDays, label: 'Appointment Management', path: '/appointments', roles: ['super_admin'] },
 ];
 

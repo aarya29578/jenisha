@@ -16,6 +16,7 @@ import WithdrawalManagement from '@/app/components/pages/WithdrawalManagement';
 import CommissionSettings from '@/app/components/pages/CommissionSettings';
 import ReferEarn from '@/app/components/pages/ReferEarn';
 import TermsManagement from '@/app/components/pages/TermsManagement';
+import Terms from '@/app/components/pages/Terms';
 import AdminProfile from '@/app/components/pages/AdminProfile';
 import RegistrationSettings from '@/app/components/pages/RegistrationSettings';
 import AppointmentManagement from '@/app/components/pages/AppointmentManagement';
@@ -73,6 +74,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/terms" element={<Terms />} />
         <Route 
           path="/login" 
           element={
@@ -185,7 +187,7 @@ function App() {
                     </RoleGuard>
                   } />
                   
-                  <Route path="/terms" element={
+                  <Route path="/terms-management" element={
                     <RoleGuard allowedRoles={['super_admin']}>
                       <TermsManagement />
                     </RoleGuard>
