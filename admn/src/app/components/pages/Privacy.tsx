@@ -21,6 +21,11 @@ const privacyDetails = [
     content:
       'Users may request access, correction, or review of their relevant account data through authorized support channels, subject to legal and compliance obligations.',
   },
+  {
+    title: 'Profile Deletion',
+    content:
+      'Users may request deletion of their profile through authorized support channels. Deletion requests are verified before processing, profile data is removed from active systems, and only records required for fraud prevention, legal obligations, or audit compliance are retained for the minimum required period.',
+  },
 ];
 
 export default function Privacy() {
@@ -67,6 +72,10 @@ export default function Privacy() {
                 <li className="flex gap-3">
                   <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-[#4C4CFF]" />
                   <span>Users can request data review through support channels.</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="mt-1 inline-flex h-2.5 w-2.5 rounded-full bg-[#4C4CFF]" />
+                  <span>Profile deletion requests are verified before removal.</span>
                 </li>
               </ul>
             </div>
