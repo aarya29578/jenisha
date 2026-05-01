@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/user_service.dart';
 import '../services/google_auth_service.dart';
 import '../services/firestore_service.dart';
+import '../services/auth_service.dart';
+import 'otp_verification_screen.dart';
 import '../l10n/app_localizations.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -380,20 +382,53 @@ class _LoginScreenState extends State<LoginScreen> {
                               // Send OTP Button
                               ElevatedButton(
                                 onPressed: _isValid
-                                    ? () {
-                                        // Initialize user service with default user type
-                                        // In real app, this comes from backend after OTP validation
+                                    ? () async {
+                                        final phone =
+                                            _phoneController.text.trim();
+                                        final fullPhone = phone.startsWith('+')
+                                            ? phone
+                                            : '+91$phone';
+                                        print('SEND OTP CLICKED: $fullPhone');
+
+                                        // Prepare user service defaults (same behavior as before)
                                         final userService = UserService();
-                                        userService.userType =
-                                            'new'; // Default: new user needs registration (matches React demo 'login' mode)
+                                        userService.userType = 'new';
                                         userService.registrationStatus =
                                             'pending';
 
-                                        Navigator.pushNamed(
-                                          context,
-                                          '/otp',
-                                          arguments: _phoneController.text,
-                                        );
+                                        final auth = AuthService();
+                                        setState(() => _isLoading = true);
+                                        try {
+                                          await auth.sendOtp(phone,
+                                              onCodeSent: (vId, token) {
+                                            // Navigate when code is sent to avoid duplicate sends
+                                            // Pass the verificationId from Firebase directly to the OTP screen
+                                            print(
+                                                'OTP SENT (callback) VERIFICATION ID: $vId');
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    OTPVerificationScreen(
+                                                  verificationId: vId,
+                                                  phone: fullPhone,
+                                                ),
+                                              ),
+                                            );
+                                          });
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                  content: Text(
+                                                      'Failed to send OTP: $e')),
+                                            );
+                                          }
+                                        } finally {
+                                          if (mounted)
+                                            setState(() => _isLoading = false);
+                                        }
                                       }
                                     : null,
                                 style: ElevatedButton.styleFrom(

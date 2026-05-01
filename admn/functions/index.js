@@ -5,7 +5,7 @@
  * without affecting their own authentication session.
  */
 
-const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
@@ -386,3 +386,117 @@ exports.processApplicationCommission = onDocumentCreated(
     }
   }
 );
+
+    /**
+     * transferMoneyHttp
+     * HTTP POST endpoint that performs an authenticated, atomic transfer between two users.
+     * Expects JSON body: { receiverId: string, amount: number }
+     * Requires Authorization: Bearer <idToken>
+     */
+    exports.transferMoneyHttp = onRequest({ region: 'us-central1' }, async (req, res) => {
+      try {
+        console.log('🔵 transferMoneyHttp called', { method: req.method, url: req.url });
+
+        if (req.method !== 'POST') return res.status(405).send({ error: 'Method not allowed' });
+
+        const authHeader = req.get('authorization') || req.headers.authorization || '';
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+          return res.status(401).send({ error: 'Missing or invalid Authorization header' });
+        }
+
+        const idToken = authHeader.split(' ')[1];
+        let decoded;
+        try {
+          decoded = await admin.auth().verifyIdToken(idToken);
+        } catch (err) {
+          console.error('❌ verifyIdToken failed', err);
+          return res.status(401).send({ error: 'Invalid authentication token' });
+        }
+
+        const senderUid = decoded.uid;
+        console.log('🔐 Authenticated senderUid:', senderUid);
+        let body = req.body || {};
+        if (typeof body === 'string') {
+          try {
+            body = JSON.parse(body);
+          } catch (e) {
+            body = {};
+          }
+        }
+        console.log('📦 Parsed request body:', body);
+        const { senderId: bodySenderId, receiverId, amount } = body || {};
+        // If caller provided a senderId, ensure it matches the authenticated token
+        if (bodySenderId && bodySenderId !== senderUid) {
+          return res.status(403).send({ error: 'sender_mismatch' });
+        }
+        if (!receiverId || (amount === undefined || amount === null)) {
+          return res.status(400).send({ error: 'Missing required fields: receiverId, amount' });
+        }
+
+        const amt = Number(amount);
+        if (isNaN(amt) || amt <= 0) {
+          return res.status(400).send({ error: 'Invalid amount' });
+        }
+
+        const db = admin.firestore();
+
+        await db.runTransaction(async (txn) => {
+          console.log('➡️ Starting transfer txn', { sender: senderUid, receiver: receiverId, amount: amt });
+          const senderRef = db.collection('users').doc(senderUid);
+          const receiverRef = db.collection('users').doc(receiverId);
+
+          const sSnap = await txn.get(senderRef);
+          const rSnap = await txn.get(receiverRef);
+
+          if (!sSnap.exists) throw new Error('Sender not found');
+          if (!rSnap.exists) throw new Error('Receiver not found');
+
+          const sBalance = Number(sSnap.data().walletBalance || 0);
+          const rBalance = Number(rSnap.data().walletBalance || 0);
+
+          if (sBalance < amt) {
+            // Fail fast with clear message
+            throw new Error('insufficient_balance');
+          }
+
+          txn.update(senderRef, { walletBalance: sBalance - amt });
+          txn.update(receiverRef, { walletBalance: rBalance + amt });
+
+          const senderName = sSnap.data().fullName || sSnap.data().name || '';
+          const receiverName = rSnap.data().fullName || rSnap.data().name || '';
+
+          // Record sender transaction (debit)
+          txn.set(db.collection('wallet_transactions').doc(), {
+            userId: senderUid,
+            userName: senderName,
+            type: 'transfer',
+            toUserId: receiverId,
+            toUserName: receiverName,
+            amount: amt,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          // Record receiver transaction (credit)
+          txn.set(db.collection('wallet_transactions').doc(), {
+            userId: receiverId,
+            userName: receiverName,
+            type: 'credit',
+            fromUserId: senderUid,
+            fromUserName: senderName,
+            amount: amt,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+        });
+
+        console.log('✅ Transfer completed', { sender: senderUid, receiver: receiverId, amount: amt });
+
+        return res.status(200).send({ success: true, message: 'Transfer completed' });
+      } catch (err) {
+        console.error('❌ transferMoneyHttp error:', err);
+        const isInsufficient = err && err.message && err.message.includes('insufficient_balance');
+        if (isInsufficient) return res.status(400).send({ error: 'insufficient_balance' });
+        return res.status(500).send({ error: err.message || 'Transfer failed' });
+      }
+    });

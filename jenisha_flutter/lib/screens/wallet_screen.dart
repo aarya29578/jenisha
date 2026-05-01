@@ -66,6 +66,13 @@ class _WalletScreenState extends State<WalletScreen> {
   final _agentDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
   final _userDocs = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
 
+  // Debounce timer used by the transfer user search
+  Timer? _transferSearchDebounce;
+
+  // Optimistic UI: pending deduction while transfer is in-flight
+  double _optimisticPendingDeduct = 0.0;
+  double? _lastSeenBalance;
+
   // Plain state — rebuilt via setState so no broadcast-stream re-subscribe issue.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergedTxns = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _withdrawals = [];
@@ -174,6 +181,7 @@ class _WalletScreenState extends State<WalletScreen> {
     _agentSub?.cancel();
     _userSub?.cancel();
     _referSub?.cancel();
+    _transferSearchDebounce?.cancel();
     super.dispose();
   }
 
@@ -379,6 +387,516 @@ class _WalletScreenState extends State<WalletScreen> {
     );
   }
 
+  /// Search users by name or ID (simple prefix-search + exact-id lookup).
+  Future<List<DocumentSnapshot<Map<String, dynamic>>>> _searchUsers(
+      String q) async {
+    final trimmed = q.trim();
+    if (trimmed.isEmpty) return [];
+    final uid = _auth.currentUser?.uid;
+    final results = <DocumentSnapshot<Map<String, dynamic>>>[];
+
+    try {
+      // Exact doc id match (fast path)
+      final doc = await _db.collection('users').doc(trimmed).get();
+      if (doc.exists && doc.id != uid) results.add(doc);
+    } catch (_) {}
+
+    try {
+      // Prefix search on fullName
+      final end = trimmed + '\uf8ff';
+      final q1 = await _db
+          .collection('users')
+          .where('fullName', isGreaterThanOrEqualTo: trimmed)
+          .where('fullName', isLessThanOrEqualTo: end)
+          .limit(25)
+          .get();
+      results.addAll(q1.docs);
+    } catch (_) {}
+
+    try {
+      // Prefix search on name (fallback)
+      final end = trimmed + '\uf8ff';
+      final q2 = await _db
+          .collection('users')
+          .where('name', isGreaterThanOrEqualTo: trimmed)
+          .where('name', isLessThanOrEqualTo: end)
+          .limit(25)
+          .get();
+      results.addAll(q2.docs);
+    } catch (_) {}
+
+    // Deduplicate and exclude current user
+    final map = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in results) {
+      if (d.id == uid) continue;
+      map[d.id] = d;
+    }
+
+    return map.values.take(25).toList();
+  }
+
+  Future<void> _performTransfer(
+    DocumentSnapshot<Map<String, dynamic>> receiverDoc,
+    double amount,
+  ) async {
+    // Perform an atomic transfer using a Firestore transaction (client-side).
+    final sender = _auth.currentUser;
+    if (sender == null) throw Exception('User not logged in');
+    if (receiverDoc.id.isEmpty) throw Exception('invalid_receiver');
+    if (sender.uid == receiverDoc.id) throw Exception('cannot_transfer_to_self');
+    if (amount.isNaN || amount <= 0) throw Exception('invalid_amount');
+
+    final db = _db;
+
+    // Debug: log transfer intent
+    try {
+      print('TRANSFER START: sender=${sender.uid}, receiver=${receiverDoc.id}, amount=$amount');
+    } catch (_) {}
+
+    try {
+      await db.runTransaction((txn) async {
+        final senderRef = db.collection('users').doc(sender.uid);
+        final receiverRef = db.collection('users').doc(receiverDoc.id);
+
+        final sSnap = await txn.get(senderRef);
+        final rSnap = await txn.get(receiverRef);
+
+        if (!sSnap.exists) throw Exception('sender_not_found');
+        if (!rSnap.exists) throw Exception('receiver_not_found');
+
+        final sData = sSnap.data() ?? <String, dynamic>{};
+        final rData = rSnap.data() ?? <String, dynamic>{};
+
+        double sBalance = 0.0;
+        final sBalRaw = sData['walletBalance'];
+        if (sBalRaw is num) sBalance = (sBalRaw as num).toDouble();
+        else if (sBalRaw is String) sBalance = double.tryParse(sBalRaw) ?? 0.0;
+
+        double rBalance = 0.0;
+        final rBalRaw = rData['walletBalance'];
+        if (rBalRaw is num) rBalance = (rBalRaw as num).toDouble();
+        else if (rBalRaw is String) rBalance = double.tryParse(rBalRaw) ?? 0.0;
+
+        // Debug: log balances before update
+        try {
+          print('TRANSFER TXN READ: senderBalance=$sBalance, receiverBalance=$rBalance');
+        } catch (_) {}
+
+        if (sBalance < amount) {
+          throw Exception('insufficient_balance');
+        }
+
+        // Update balances
+        txn.update(senderRef, {'walletBalance': sBalance - amount});
+        txn.update(receiverRef, {'walletBalance': rBalance + amount});
+
+        // Record transaction in `transactions` collection (per requirements)
+        final txRef = db.collection('transactions').doc();
+        txn.set(txRef, {
+          'from': sender.uid,
+          'to': receiverDoc.id,
+          'amount': amount,
+          'type': 'transfer',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        // Also write into existing `wallet_transactions` for UI compatibility
+        final wtRef = db.collection('wallet_transactions').doc();
+        final senderName = sData['fullName'] ?? sData['name'] ?? '';
+        final receiverName = rData['fullName'] ?? rData['name'] ?? '';
+        txn.set(wtRef, {
+          'userId': sender.uid,
+          'userName': senderName,
+          'type': 'transfer',
+          'toUserId': receiverDoc.id,
+          'toUserName': receiverName,
+          'amount': amount,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      });
+
+      try {
+        print('TRANSFER SUCCESS: sender=${sender.uid}, receiver=${receiverDoc.id}, amount=$amount');
+      } catch (_) {}
+    } catch (e, st) {
+      // Log failure and rethrow for UI handling
+      try {
+        print('TRANSFER ERROR: $e');
+        print(st);
+      } catch (_) {}
+      rethrow;
+    }
+    return;
+  }
+
+  Future<void> _showTransferSheet(double serverBalance) async {
+    final loc = AppLocalizations.of(context);
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final searchController = TextEditingController();
+    final amountController = TextEditingController();
+    DocumentSnapshot<Map<String, dynamic>>? selectedUserDoc;
+    List<DocumentSnapshot<Map<String, dynamic>>> results = [];
+    bool loading = false;
+    bool submitting = false;
+    String errorText = '';
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.95,
+          builder: (dctx, scrollController) {
+            return StatefulBuilder(builder: (ctx, setModalState) {
+              final parsedAmt = double.tryParse(amountController.text.trim());
+              final canSubmit = !submitting &&
+                  selectedUserDoc != null &&
+                  parsedAmt != null &&
+                  parsedAmt > 0 &&
+                  parsedAmt <= serverBalance &&
+                  selectedUserDoc!.id != user.uid;
+
+              final displayBalance = (serverBalance - _optimisticPendingDeduct).clamp(0.0, double.infinity);
+
+              return Padding(
+                padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                  child: SingleChildScrollView(
+                    controller: scrollController,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Handle
+                        Center(
+                          child: Container(
+                            width: 40,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDDDDDD),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          loc.get('transfer'),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text('${loc.get('wallet_balance')}: ₹${displayBalance.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF888888))),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: searchController,
+                          decoration: const InputDecoration(
+                            hintText: 'Search user by name or ID',
+                            prefixIcon: Icon(Icons.search),
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) {
+                            if (_transferSearchDebounce?.isActive ?? false) {
+                              _transferSearchDebounce?.cancel();
+                            }
+                            _transferSearchDebounce = Timer(const Duration(milliseconds: 400), () async {
+                              try {
+                                setModalState(() {
+                                  loading = true;
+                                  results = [];
+                                });
+                                final res = await _searchUsers(v);
+                                if (mounted) setModalState(() {
+                                  results = res;
+                                  loading = false;
+                                });
+                              } catch (_) {
+                                if (mounted) setModalState(() {
+                                  loading = false;
+                                  results = [];
+                                });
+                              }
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        // Search results
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7F7F7),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: loading
+                              ? const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 24),
+                                  child: Center(child: CircularProgressIndicator()),
+                                )
+                              : results.isEmpty
+                                  ? const Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 18),
+                                      child: Center(child: Text('No users found.')),
+                                    )
+                                  : Column(
+                                      children: results.map((d) {
+                                        final data = d.data() ?? {};
+                                        final name = (data['fullName'] ?? data['name'] ?? '') as String;
+                                        final id = d.id;
+                                        final profileUrl = (data['profilePhotoUrl'] ?? data['profileImage'] ?? data['profileImageUrl'] ?? data['photoUrl']) as String?;
+                                        final isSelected = selectedUserDoc?.id == d.id;
+                                        // Debug image URL for troubleshooting
+                                        try {
+                                          print('User Image URL: $profileUrl');
+                                        } catch (_) {}
+
+                                        final Widget avatarWidget = (profileUrl != null && profileUrl.isNotEmpty)
+                                            ? CircleAvatar(
+                                                radius: 22,
+                                                backgroundColor: Colors.grey.shade200,
+                                                child: ClipOval(
+                                                  child: SizedBox(
+                                                    width: 44,
+                                                    height: 44,
+                                                    child: Image.network(
+                                                      profileUrl,
+                                                      fit: BoxFit.cover,
+                                                      loadingBuilder: (context, child, loadingProgress) {
+                                                        if (loadingProgress == null) return child;
+                                                        return const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)));
+                                                      },
+                                                      errorBuilder: (context, error, stackTrace) {
+                                                        final letter = name.isNotEmpty ? name[0].toUpperCase() : '?';
+                                                        return Container(
+                                                          color: Colors.grey.shade200,
+                                                          child: Center(child: Text(letter, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                                        );
+                                                      },
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            : CircleAvatar(radius: 22, backgroundColor: Colors.grey.shade200, child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)));
+
+                                        return InkWell(
+                                          onTap: () => setModalState(() => selectedUserDoc = d),
+                                          child: Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                            decoration: BoxDecoration(
+                                              color: isSelected ? Theme.of(context).primaryColor.withOpacity(0.06) : Colors.white,
+                                              border: isSelected ? Border.all(color: Theme.of(context).primaryColor, width: 1.0) : null,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                avatarWidget,
+                                                const SizedBox(width: 12),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                                      const SizedBox(height: 4),
+                                                      Text(id, style: const TextStyle(fontSize: 12, color: Color(0xFF666666))),
+                                                    ],
+                                                  ),
+                                                ),
+                                                if (isSelected) Icon(Icons.check_circle, color: Theme.of(context).primaryColor),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      }).toList(),
+                                    ),
+                        ),
+                        const SizedBox(height: 12),
+                        if (selectedUserDoc != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: const [BoxShadow(color: Color(0x12000000), blurRadius: 6, offset: Offset(0, 2))],
+                            ),
+                            child: Row(
+                              children: [
+                                Builder(builder: (_) {
+                                  final sData = selectedUserDoc!.data() ?? {};
+                                  final sName = (sData['fullName'] ?? sData['name'] ?? '') as String;
+                                  final sProfile = (sData['profilePhotoUrl'] ?? sData['profileImage'] ?? sData['profileImageUrl'] ?? sData['photoUrl']) as String?;
+
+                                  try {
+                                    print('User Image URL (selected): $sProfile');
+                                  } catch (_) {}
+
+                                  final Widget avatarWidget = (sProfile != null && sProfile.isNotEmpty)
+                                      ? CircleAvatar(
+                                          radius: 22,
+                                          backgroundColor: Colors.grey.shade200,
+                                          child: ClipOval(
+                                            child: SizedBox(
+                                              width: 44,
+                                              height: 44,
+                                              child: Image.network(
+                                                sProfile,
+                                                fit: BoxFit.cover,
+                                                loadingBuilder: (context, child, loadingProgress) {
+                                                  if (loadingProgress == null) return child;
+                                                  return const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)));
+                                                },
+                                                errorBuilder: (context, error, stackTrace) {
+                                                  final letter = sName.isNotEmpty ? sName[0].toUpperCase() : '?';
+                                                  return Container(
+                                                    color: Colors.grey.shade200,
+                                                    child: Center(child: Text(letter, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                                  );
+                                                },
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : CircleAvatar(radius: 22, backgroundColor: Colors.grey.shade200, child: Text(sName.isNotEmpty ? sName[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold)));
+
+                                  return avatarWidget;
+                                }),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(selectedUserDoc!.data()?['fullName'] ?? selectedUserDoc!.data()?['name'] ?? '', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                                      const SizedBox(height: 4),
+                                      Text(selectedUserDoc!.id, style: const TextStyle(color: Color(0xFF666666))),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                        // Amount
+                        TextField(
+                          controller: amountController,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: InputDecoration(
+                            labelText: loc.get('enter_amount'),
+                            prefixText: '₹ ',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onChanged: (_) {
+                            // Rebuild so the button enablement updates live
+                            setModalState(() {
+                              if (errorText.isNotEmpty) errorText = '';
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        if (errorText.isNotEmpty) ...[
+                          Text(errorText, style: const TextStyle(color: Color(0xFFE53935))),
+                          const SizedBox(height: 8),
+                        ],
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: canSubmit
+                                ? () async {
+                                    final amt = parsedAmt!;
+                                    final confirmed = await showDialog<bool>(
+                                      context: context,
+                                      builder: (dctx) => AlertDialog(
+                                        title: Text(loc.get('confirm')),
+                                        content: Text('Transfer ₹${amt.toStringAsFixed(0)} to ${selectedUserDoc!.data()?['fullName'] ?? selectedUserDoc!.data()?['name'] ?? selectedUserDoc!.id}?'),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(dctx, false), child: Text(loc.get('cancel'))),
+                                          TextButton(onPressed: () => Navigator.pop(dctx, true), child: Text(loc.get('confirm'))),
+                                        ],
+                                      ),
+                                    );
+
+                                    if (confirmed != true) return;
+
+                                    setModalState(() {
+                                      submitting = true;
+                                      errorText = '';
+                                    });
+
+                                    try {
+                                      // Optimistic UI: deduct locally while request is in-flight
+                                      if (mounted) setState(() => _optimisticPendingDeduct += amt);
+                                      await _performTransfer(selectedUserDoc!, amt);
+                                      if (mounted) Navigator.pop(ctx);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Transferred ₹${amt.toStringAsFixed(0)} successfully'), backgroundColor: const Color(0xFF4CAF50)),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      // Log error
+                                      try {
+                                        print('TRANSFER ERROR: $e');
+                                      } catch (_) {}
+
+                                      // Revert optimistic deduction
+                                      if (mounted) setState(() => _optimisticPendingDeduct = (_optimisticPendingDeduct - amt).clamp(0.0, double.infinity));
+
+                                      // Show snackbar with clean message
+                                      final isInsufficient = e.toString().contains('insufficient_balance');
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text(isInsufficient ? loc.get('insufficient_balance') : 'Transfer failed'),
+                                            backgroundColor: const Color(0xFFE53935),
+                                          ),
+                                        );
+                                      }
+
+                                      setModalState(() {
+                                        submitting = false;
+                                        final raw = e.toString();
+                                        if (raw.contains('insufficient_balance')) {
+                                          errorText = loc.get('insufficient_balance');
+                                        } else {
+                                          // Strip generic Exception prefix if present
+                                          errorText = raw.replaceFirst('Exception: ', '');
+                                        }
+                                      });
+                                    }
+                                  }
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Theme.of(context).primaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 0,
+                            ),
+                            child: submitting
+                                ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : Text(loc.get('transfer')),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            });
+          },
+        );
+      },
+    );
+
+    _transferSearchDebounce?.cancel();
+  }
+
   Future<void> _submitWithdrawal(
     double amount,
     Map<String, dynamic> paymentDetails,
@@ -504,6 +1022,7 @@ class _WalletScreenState extends State<WalletScreen> {
     final loc = AppLocalizations.of(context);
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Theme.of(context).primaryColor,
@@ -520,10 +1039,16 @@ class _WalletScreenState extends State<WalletScreen> {
           : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
               stream: _userStream,
               builder: (context, userSnap) {
-                final walletBalance =
-                    (userSnap.data?.data()?['walletBalance'] ?? 0).toDouble();
-                final balanceStr =
-                    _toDevanagari(walletBalance.toStringAsFixed(0), loc);
+                final serverBalance =
+                  (userSnap.data?.data()?['walletBalance'] ?? 0).toDouble();
+                // Reset optimistic deduction when server balance changes
+                if (_lastSeenBalance == null) _lastSeenBalance = serverBalance;
+                if (_lastSeenBalance != serverBalance) {
+                  _optimisticPendingDeduct = 0.0;
+                  _lastSeenBalance = serverBalance;
+                }
+                final walletBalance = (serverBalance - _optimisticPendingDeduct).clamp(0.0, double.infinity);
+                final balanceStr = _toDevanagari(walletBalance.toStringAsFixed(0), loc);
 
                 return SingleChildScrollView(
                   child: Padding(
@@ -591,7 +1116,27 @@ class _WalletScreenState extends State<WalletScreen> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 12),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () =>
+                                          _showTransferSheet(walletBalance),
+                                      icon: const Icon(Icons.send),
+                                      label: Text(loc.get('transfer')),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            Colors.white.withOpacity(0.12),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(
+                                            vertical: 12),
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8)),
+                                        elevation: 0,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
                                   Expanded(
                                     child: ElevatedButton.icon(
                                       onPressed: () =>
@@ -809,6 +1354,10 @@ class _WalletScreenState extends State<WalletScreen> {
                                     (d['serviceName'] as String? ?? '').trim();
                                 title = loc.get('service_payment_label') +
                                     (svc.isNotEmpty ? ' – $svc' : '');
+                                subtitle = '';
+                              } else if (txType == 'transfer') {
+                                final toName = (d['toUserName'] as String? ?? '').trim();
+                                title = toName.isNotEmpty ? 'Transfer to $toName' : 'Transfer';
                                 subtitle = '';
                               } else {
                                 title = isCredit ? 'Credit' : 'Debit';

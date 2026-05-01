@@ -36,6 +36,8 @@ void main() async {
         options: DefaultFirebaseOptions.currentPlatform,
       );
       print('✅ Firebase initialized successfully');
+      // Also print a clear, single-line debug message required by ops
+      print('FIREBASE INITIALIZED SUCCESSFULLY');
     } else {
       print('✅ Firebase already initialized');
     }
@@ -101,8 +103,19 @@ class JenishaApp extends StatelessWidget {
               case '/login':
                 return MaterialPageRoute(builder: (_) => const LoginScreen());
               case '/otp':
-                return MaterialPageRoute(
-                    builder: (_) => const OTPVerificationScreen());
+                final args = settings.arguments;
+                if (args is Map && args['verificationId'] is String) {
+                  final verId = args['verificationId'] as String;
+                  final phoneArg = args['phone'] as String?;
+                  return MaterialPageRoute(
+                    builder: (_) => OTPVerificationScreen(
+                      verificationId: verId,
+                      phone: phoneArg,
+                    ),
+                  );
+                }
+                // Prevent manual navigation to OTP without a valid verificationId
+                return MaterialPageRoute(builder: (_) => const LoginScreen());
               case '/home':
                 return MaterialPageRoute(
                     builder: (_) =>

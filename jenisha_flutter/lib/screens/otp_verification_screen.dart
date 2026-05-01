@@ -2,12 +2,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/user_service.dart';
+import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
 import '../l10n/app_localizations.dart';
 
 class OTPVerificationScreen extends StatefulWidget {
-  const OTPVerificationScreen({Key? key}) : super(key: key);
+  final String verificationId;
+  final String? phone;
+
+  const OTPVerificationScreen(
+      {Key? key, required this.verificationId, this.phone})
+      : super(key: key);
 
   @override
   State<OTPVerificationScreen> createState() => _OTPVerificationScreenState();
@@ -22,14 +30,37 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
   int _timer = 30;
   Timer? _ticker;
   bool _canResend = false;
+  String? _verificationId;
+  int? _resendToken;
+  bool _isSending = false;
+  bool _isVerifying = false;
+  String? _mobileArg;
+  bool _sentOnce = false;
 
   @override
   void initState() {
     super.initState();
+    // Initialize with verificationId passed via constructor (must come from codeSent)
+    _verificationId = widget.verificationId;
+    _mobileArg = widget.phone;
     _startTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNodes[0].requestFocus();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_sentOnce) {
+      // Do not trigger a new OTP send here. The verificationId must come from
+      // Firebase's codeSent callback and be provided to this screen via the
+      // constructor. Accept an optional phone passed in the constructor or via
+      // route arguments as a fallback for display only.
+      _mobileArg = widget.phone ??
+          (ModalRoute.of(context)?.settings.arguments as String? ?? '');
+      _sentOnce = true;
+    }
   }
 
   void _startTimer() {
@@ -95,13 +126,154 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
       for (var c in _controllers) c.clear();
       _startTimer();
       _focusNodes[0].requestFocus();
+      // Attempt resend
+      if (_mobileArg != null && _mobileArg!.isNotEmpty) {
+        _sendCode(_mobileArg!, forceResend: true);
+      }
       setState(() {});
+    }
+  }
+
+  Future<void> _sendCode(String mobile, {bool forceResend = false}) async {
+    final phoneNumber = mobile.startsWith('+') ? mobile : '+91$mobile';
+
+    // Basic validation: +91 followed by 10 digits
+    final valid = RegExp(r'^\+91[6-9]\d{9}$').hasMatch(phoneNumber);
+    print('PHONE NUMBER: $phoneNumber');
+    if (!valid) {
+      print('PHONE FORMAT INVALID: $phoneNumber');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid phone number format')),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isSending = true;
+    });
+
+    try {
+      final auth = AuthService();
+      await auth.sendOtp(mobile, forceResend: forceResend,
+          onCodeSent: (vId, rToken) {
+        setState(() {
+          _verificationId = vId;
+          _resendToken = rToken;
+          _isSending = false;
+          _canResend = false;
+        });
+        _startTimer();
+      });
+
+      // If AuthService already had verificationId available, copy it
+      if (auth.verificationId != null) {
+        setState(() {
+          _verificationId = auth.verificationId;
+          _resendToken = auth.resendToken;
+        });
+      }
+    } catch (e) {
+      print('verifyPhoneNumber threw: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send OTP: $e')),
+        );
+      }
+      setState(() {
+        _isSending = false;
+      });
+    }
+  }
+
+  Future<void> _postSignIn(User user) async {
+    try {
+      final userService = UserService();
+      final userEmail = user.email ?? '';
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (userDoc.exists) {
+        final data = userDoc.data()!;
+        final status = (data['status'] as String?) ?? 'pending';
+
+        userService.userType = 'existing';
+        userService.registrationStatus = status;
+        userService.userEmail = userEmail;
+        userService.userName =
+            (data['fullName'] as String?) ?? user.displayName ?? '';
+
+        if (!mounted) return;
+
+        if (status == 'approved') {
+          Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+        } else if (status == 'rejected') {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text(
+                      'Your application has been rejected. Please contact support.'),
+                  backgroundColor: Colors.red),
+            );
+          }
+          await FirebaseAuth.instance.signOut();
+        } else if (status == 'blocked') {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text(
+                      'Your account has been blocked. Please contact support.'),
+                  backgroundColor: Colors.red),
+            );
+          }
+          await FirebaseAuth.instance.signOut();
+        } else if (status == 'incomplete') {
+          Navigator.pushNamedAndRemoveUntil(
+              context, '/registration', (route) => false);
+        } else {
+          Navigator.pushNamedAndRemoveUntil(
+              context, '/registration-status', (route) => false,
+              arguments: 'pending');
+        }
+      } else {
+        // New user - create draft document
+        print(
+            '🆕 [NEW USER] Creating draft user document for UID: ${user.uid}');
+        final firestoreService = FirestoreService();
+        await firestoreService.createDraftUserDocument(
+          fullName: user.displayName ?? '',
+          email: userEmail,
+          phoneNumber: user.phoneNumber ?? '',
+        );
+
+        userService.userType = 'new';
+        userService.registrationStatus = 'pending';
+        userService.userEmail = userEmail;
+        userService.userName = user.displayName ?? '';
+
+        if (!mounted) return;
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/registration', (route) => false);
+      }
+    } catch (e) {
+      print('Post sign-in routing error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Login succeeded but routing failed: $e')),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final mobile = ModalRoute.of(context)?.settings.arguments as String? ?? '';
+    final mobile = widget.phone ?? _mobileArg ?? '';
+    final displayPhone = mobile.startsWith('+')
+        ? mobile
+        : (mobile.isNotEmpty ? '+91 $mobile' : '');
     final localizations = AppLocalizations.of(context);
     final isOTPComplete = _otp.length == 6;
 
@@ -232,36 +404,78 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: isOTPComplete
+                    onPressed: isOTPComplete && !_isVerifying
                         ? () async {
-                            final userService = UserService();
-                            userService.isAuthenticated = true;
+                            final activeVerId =
+                                _verificationId ?? widget.verificationId;
 
-                            // Route based on user type (matches React logic)
-                            String nextRoute = '/home';
-                            Map<String, dynamic>? routeArguments;
-
-                            if (userService.userType == 'new') {
-                              nextRoute = '/registration';
-                              // No arguments needed for registration form
-                            } else if (userService.userType == 'pending') {
-                              nextRoute = '/registration-status';
-                              routeArguments = userService.registrationStatus
-                                  as Map<String, dynamic>?;
-                            } else if (userService.userType == 'blocked') {
-                              nextRoute = '/account-status';
-                              routeArguments = {'status': 'blocked'};
+                            // Safety: verificationId must be provided by the codeSent callback
+                            if (activeVerId == null || activeVerId.isEmpty) {
+                              print('ERROR: verificationId missing');
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                      content: Text(
+                                          'No verification ID. Please resend OTP.')),
+                                );
+                              }
+                              return;
                             }
 
-                            Navigator.pushReplacementNamed(
-                              context,
-                              nextRoute,
-                              arguments: routeArguments,
-                            );
+                            print('VERIFYING OTP');
+                            print('VERIFICATION ID: $activeVerId');
+
+                            setState(() {
+                              _isVerifying = true;
+                            });
+
+                            try {
+                              final credential = PhoneAuthProvider.credential(
+                                verificationId: activeVerId,
+                                smsCode: _otp,
+                              );
+
+                              final result = await FirebaseAuth.instance
+                                  .signInWithCredential(credential);
+                              print('LOGIN SUCCESS uid=${result.user?.uid}');
+
+                              if (result.user != null)
+                                await _postSignIn(result.user!);
+                            } on FirebaseAuthException catch (e) {
+                              print('VERIFY ERROR: ${e.code}');
+                              print('VERIFY ERROR MSG: ${e.message}');
+                              String msg;
+                              switch (e.code) {
+                                case 'invalid-verification-code':
+                                case 'invalid-verification-id':
+                                  msg = 'Invalid OTP. Please try again.';
+                                  break;
+                                case 'session-expired':
+                                  msg = 'OTP session expired. Please resend.';
+                                  break;
+                                case 'too-many-requests':
+                                  msg = 'Too many attempts. Try again later.';
+                                  break;
+                                default:
+                                  msg = e.message ?? 'Verification failed';
+                              }
+                              if (mounted)
+                                ScaffoldMessenger.of(context)
+                                    .showSnackBar(SnackBar(content: Text(msg)));
+                            } catch (e) {
+                              print('VERIFY ERROR: $e');
+                              if (mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content:
+                                            Text('Verification error: $e')));
+                            } finally {
+                              if (mounted) setState(() => _isVerifying = false);
+                            }
                           }
                         : null,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isOTPComplete
+                      backgroundColor: isOTPComplete && !_isVerifying
                           ? Theme.of(context).colorScheme.primary
                           : const Color(0xFFCCCCCC),
                       foregroundColor: Colors.white,
@@ -271,13 +485,19 @@ class _OTPVerificationScreenState extends State<OTPVerificationScreen> {
                       ),
                       elevation: 0,
                     ),
-                    child: Text(
-                      localizations.get('verify_otp'),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                    child: _isVerifying
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : Text(
+                            localizations.get('verify_otp'),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 16),

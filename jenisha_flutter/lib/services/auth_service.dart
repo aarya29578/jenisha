@@ -12,6 +12,10 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // OTP state
+  String? lastSentPhone;
+  String? verificationId;
+  int? resendToken;
 
   /// Get current Firebase Auth user
   User? get currentUser => _auth.currentUser;
@@ -145,5 +149,60 @@ class AuthService {
   /// Listen to auth state changes
   Stream<User?> authStateChanges() {
     return _auth.authStateChanges();
+  }
+
+  /// Send OTP using Firebase Auth and keep debug logs. Does NOT initialize Firebase.
+  Future<void> sendOtp(String phoneNumber,
+      {void Function(String verificationId, int? resendToken)? onCodeSent,
+      bool forceResend = false}) async {
+    final phone = phoneNumber.startsWith('+') ? phoneNumber : '+91$phoneNumber';
+    print('CALLING VERIFY PHONE: $phone');
+
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: phone,
+        timeout: const Duration(seconds: 60),
+        forceResendingToken: forceResend ? resendToken : null,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          print('AUTO VERIFIED');
+          try {
+            final cred =
+                await FirebaseAuth.instance.signInWithCredential(credential);
+            print('LOGIN SUCCESS (auto) uid=${cred.user?.uid}');
+          } catch (e) {
+            print('AUTO SIGN-IN ERROR: $e');
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          print('OTP FAILED CODE: ${e.code}');
+          print('OTP FAILED MESSAGE: ${e.message}');
+        },
+        codeSent: (String vId, int? rToken) {
+          print('OTP SENT SUCCESSFULLY');
+          print('VERIFICATION ID: $vId');
+          verificationId = vId;
+          resendToken = rToken;
+          lastSentPhone = phone;
+          if (onCodeSent != null) onCodeSent(vId, rToken);
+        },
+        codeAutoRetrievalTimeout: (String vId) {
+          print('AUTO RETRIEVAL TIMEOUT: $vId');
+          verificationId = vId;
+        },
+      );
+    } catch (e) {
+      print('verifyPhoneNumber threw: $e');
+      rethrow;
+    }
+  }
+
+  /// Verify OTP code and sign in
+  Future<UserCredential> verifyOtp(
+      {required String verificationId, required String smsCode}) async {
+    final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId, smsCode: smsCode);
+    final result = await FirebaseAuth.instance.signInWithCredential(credential);
+    print('LOGIN SUCCESS uid=${result.user?.uid}');
+    return result;
   }
 }
