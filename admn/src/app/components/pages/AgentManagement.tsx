@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, Eye, UserCheck, UserX, Ban, Trash2 } from 'lucide-react';
+import { Search, Eye, UserCheck, UserX, Ban, Trash2, Copy, Check } from 'lucide-react';
 import { pendingUsersService, UserData, userApprovalService } from '@/services/firebaseService';
 
 export default function AgentManagement() {
@@ -12,6 +12,13 @@ export default function AgentManagement() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const copyUid = (uid: string) => {
+    navigator.clipboard.writeText(uid);
+    setCopiedId(uid);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const handleDeleteAgent = async () => {
     if (!deleteConfirmId) return;
@@ -51,20 +58,27 @@ export default function AgentManagement() {
       'pending': 'Pending',
       'rejected': 'Rejected',
       'blocked': 'Blocked',
+      'incomplete': 'Incomplete',
     };
     return statusMap[status] || status;
   };
 
+  // Short readable UID: first 8 chars uppercase, e.g. "USR-FQJ3XA1M"
+  const shortUid = (uid: string) => `USR-${uid.slice(0, 8).toUpperCase()}`;
+
   const filteredAgents = allUsers
     .map((user) => ({
       id: user.uid,
-      name: user.fullName,
-      mobile: user.phone,
+      name: user.fullName || '',
+      mobile: user.phone || '',
       regDate: user.createdAt ? user.createdAt.toDate().toLocaleDateString('en-IN') : 'N/A',
       status: getDisplayStatus(user.status),
       wallet: 0,
       uid: user.uid,
       firestoreStatus: user.status,
+      customId: user.customId || null,
+      authMethod: user.authMethod || null,
+      email: user.email || '',
     }))
     .filter(agent => {
       const matchesSearch = agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -83,8 +97,10 @@ export default function AgentManagement() {
         return 'bg-[#FFEBEE] text-[#F44336]';
       case 'Blocked':
         return 'bg-[#F5F5F5] text-[#666666]';
+      case 'Incomplete':
+        return 'bg-[#EEF0FF] text-[#6B7AFF]';
       default:
-        return 'bg-[#F5F5F5] text-[#666666]';
+        return 'bg-[#F5F5F5] text-[#888888]';
     }
   };
 
@@ -152,7 +168,8 @@ export default function AgentManagement() {
               <thead className="bg-[#0f1518] border-b border-[#111318]">
               <tr>
                   <th className="px-5 py-3 text-left text-sm text-gray-100">Agent Name</th>
-                  <th className="px-5 py-3 text-left text-sm text-gray-100">Mobile Number</th>
+                  <th className="px-5 py-3 text-left text-sm text-gray-100">User ID</th>
+                  <th className="px-5 py-3 text-left text-sm text-gray-100">Login Credential</th>
                   <th className="px-5 py-3 text-left text-sm text-gray-100">Registration Date</th>
                   <th className="px-5 py-3 text-left text-sm text-gray-100">Status</th>
                   <th className="px-5 py-3 text-left text-sm text-gray-100">Wallet Balance</th>
@@ -162,8 +179,47 @@ export default function AgentManagement() {
               <tbody className="divide-y divide-[#0f1518]">
               {filteredAgents.map((agent) => (
                   <tr key={agent.id} className="hover:bg-[#071318] transition-colors">
-                    <td className="px-5 py-4 text-sm text-gray-100">{agent.name}</td>
-                    <td className="px-5 py-4 text-sm text-gray-400">{agent.mobile}</td>
+                    <td className="px-5 py-4 text-sm text-gray-100">
+                      {agent.name || <span className="text-gray-500 italic">Not registered</span>}
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[#6B7AFF] font-mono bg-[#0d1230] px-2 py-0.5 rounded" title={agent.uid}>
+                          {shortUid(agent.uid)}
+                        </span>
+                        <button
+                          onClick={() => copyUid(agent.uid)}
+                          className="p-1 text-gray-500 hover:text-[#243BFF] rounded transition-colors flex-shrink-0"
+                          title="Copy full User ID"
+                        >
+                          {copiedId === agent.uid ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4">
+                      {agent.authMethod === 'id_password' ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs bg-[#1E3A5F] text-[#60A5FA] px-1.5 py-0.5 rounded font-medium">ID</span>
+                            <span className="text-sm text-gray-100 font-mono">{agent.customId || '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs bg-[#3B1F1F] text-[#F87171] px-1.5 py-0.5 rounded font-medium">PWD</span>
+                            <span className="text-xs text-gray-500 italic">Hidden (Firebase Auth)</span>
+                          </div>
+                        </div>
+                      ) : agent.authMethod === 'google' ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs bg-[#1F3320] text-[#4ADE80] px-1.5 py-0.5 rounded font-medium">Google</span>
+                          <span className="text-sm text-gray-400">{agent.email || '—'}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs bg-[#2A1F3D] text-[#C084FC] px-1.5 py-0.5 rounded font-medium">OTP</span>
+                          <span className="text-sm text-gray-400">{agent.mobile || <span className="text-gray-600">—</span>}</span>
+                        </div>
+                      )}
+                    </td>
                     <td className="px-5 py-4 text-sm text-gray-400">{agent.regDate}</td>
                   <td className="px-5 py-4">
                     <span className={`inline-block px-3 py-1 text-xs rounded ${getStatusColor(agent.status)}`}>

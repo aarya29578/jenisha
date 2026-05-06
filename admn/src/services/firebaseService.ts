@@ -70,6 +70,8 @@ export interface UserData {
   reviewedBy: string | null;
   rejectionReason: string | null;
   walletBalance?: number;
+  customId?: string | null;
+  authMethod?: 'phone' | 'google' | 'id_password' | string | null;
 }
 
 // Admin Auth Service (delegates to authService for consistency)
@@ -142,6 +144,8 @@ export const pendingUsersService = {
               reviewedBy: d.reviewedBy || null,
               rejectionReason: d.rejectionReason || null,
               walletBalance: typeof d.walletBalance === 'number' ? d.walletBalance : 0,
+              customId: d.customId || null,
+              authMethod: d.authMethod || null,
             } as UserData);
           });
           callback(users.sort((a, b) => {
@@ -192,6 +196,8 @@ export const pendingUsersService = {
               reviewedBy: d.reviewedBy || null,
               rejectionReason: d.rejectionReason || null,
               walletBalance: typeof d.walletBalance === 'number' ? d.walletBalance : 0,
+              customId: d.customId || null,
+              authMethod: d.authMethod || null,
             } as UserData);
           });
           callback(users.sort((a, b) => {
