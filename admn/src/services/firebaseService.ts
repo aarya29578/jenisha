@@ -265,6 +265,38 @@ export const userApprovalService = {
       throw error;
     }
   },
+
+  // Block a user
+  blockUser: async (uid: string, adminEmail: string) => {
+    try {
+      const userRef = doc(firestore, 'users', uid);
+      await updateDoc(userRef, {
+        status: 'blocked',
+        reviewedAt: serverTimestamp(),
+        reviewedBy: adminEmail,
+      });
+      console.log(`✅ User ${uid} blocked by ${adminEmail}`);
+    } catch (error) {
+      console.error('❌ Error blocking user:', error);
+      throw error;
+    }
+  },
+
+  // Unblock a user (set back to approved)
+  unblockUser: async (uid: string, adminEmail: string) => {
+    try {
+      const userRef = doc(firestore, 'users', uid);
+      await updateDoc(userRef, {
+        status: 'approved',
+        reviewedAt: serverTimestamp(),
+        reviewedBy: adminEmail,
+      });
+      console.log(`✅ User ${uid} unblocked by ${adminEmail}`);
+    } catch (error) {
+      console.error('❌ Error unblocking user:', error);
+      throw error;
+    }
+  },
 };
 
 // User Documents Service - fetch documents from subcollection
