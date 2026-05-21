@@ -19,7 +19,7 @@ class AppLocalizations {
   // ── English ↔ Marathi dictionary ─────────────────────────────────────────
   static const Map<String, String> _en = {
     // General
-    'app_title': 'Jenisha Online Service',
+    'app_title': 'Jenisha CSC Assistance',
     'ok': 'OK',
     'cancel': 'Cancel',
     'close': 'Close',
@@ -139,8 +139,17 @@ class AppLocalizations {
     'uploading': 'Uploading...',
 
     // Service Form
-    'service_application': 'Service Application',
-    'submit_application': 'Submit Application',
+    'service_application': 'Application Assistance',
+    'submit_application': 'Submit to Authorized Agent',
+    'compliance_disclaimer_title': 'Application Assistance Service',
+    'compliance_disclaimer_body':
+        'This is a private application assistance service. Your documents are forwarded to our authorized Aaple Sarkar Seva Kendra agent (Govt. of Maharashtra notification, 30/01/2019). We do NOT issue any government credentials. Final processing and issuance is done by the relevant government department.',
+    'service_fee_breakdown_title': 'Service Fee Breakdown',
+    'service_fee_breakdown_body':
+        'Includes: authorized agent processing, document handling, status tracking, and pickup coordination. Government fees, if any, are charged separately by the issuing authority.',
+    'reference_form_title': 'Reference Form (For Your Information)',
+    'reference_form_subtitle':
+        'Download and review the official form before submitting your details to our agent',
     'application_approved': 'Application Approved',
     'application_under_review': 'Application Under Review',
     'application_approved_msg':
@@ -403,7 +412,7 @@ class AppLocalizations {
 
   static const Map<String, String> _mr = {
     // General
-    'app_title': 'जेनिशा ऑनलाइन सेवा',
+    'app_title': 'जेनिशा सीएससी सहाय्य',
     'ok': 'ठीक आहे',
     'cancel': 'रद्द करा',
     'close': 'बंद करा',
@@ -522,8 +531,17 @@ class AppLocalizations {
     'uploading': 'अपलोड होत आहे...',
 
     // Service Form
-    'service_application': 'सेवा अर्ज',
-    'submit_application': 'अर्ज सबमिट करा',
+    'service_application': 'अर्ज सहाय्य सेवा',
+    'submit_application': 'अधिकृत एजंटकडे पाठवा',
+    'compliance_disclaimer_title': 'अर्ज सहाय्य सेवा',
+    'compliance_disclaimer_body':
+        'ही एक खाजगी अर्ज सहाय्य सेवा आहे. आपले दस्तऐवज आमच्या अधिकृत आपले सरकार सेवा केंद्र एजंटकडे पाठवले जातात (महाराष्ट्र शासन अधिसूचना, ३०/०१/२०१९). आम्ही कोणतीही सरकारी प्रमाणपत्रे जारी करत नाही. अंतिम प्रक्रिया आणि जारी करणे संबंधित सरकारी विभागाद्वारे केले जाते.',
+    'service_fee_breakdown_title': 'सेवा शुल्क तपशील',
+    'service_fee_breakdown_body':
+        'समाविष्ट: अधिकृत एजंट प्रक्रिया, दस्तऐवज हाताळणी, स्थिती मागोवा आणि पिकअप समन्वय. सरकारी शुल्क, असल्यास, जारी करणाऱ्या प्राधिकरणाद्वारे स्वतंत्रपणे आकारले जाते.',
+    'reference_form_title': 'संदर्भ फॉर्म (आपल्या माहितीसाठी)',
+    'reference_form_subtitle':
+        'आपले तपशील आमच्या एजंटकडे सबमिट करण्यापूर्वी अधिकृत फॉर्म डाउनलोड करा आणि पुनरावलोकन करा',
     'application_approved': 'अर्ज मंजूर',
     'application_under_review': 'अर्ज पुनरावलोकनाधीन',
     'application_approved_msg': 'आपला {service} चा अर्ज मंजूर झाला आहे.',

@@ -926,6 +926,52 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // ── Compliance disclaimer banner ─────────────────────
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF8E1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: const Color(0xFFFFB300), width: 1),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.info_outline,
+                                  color: Color(0xFFE65100), size: 20),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      AppLocalizations.of(context)
+                                          .get('compliance_disclaimer_title'),
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFFE65100),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      AppLocalizations.of(context)
+                                          .get('compliance_disclaimer_body'),
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        height: 1.4,
+                                        color: Color(0xFF4E342E),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                         if (_isLoadingFields)
                           const Center(
                             child: Padding(
@@ -934,52 +980,27 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                             ),
                           )
                         else ...[
-                          // ── Service image ─────────────────────────────────────────
-                          if (_serviceLogoUrl.isNotEmpty) ...[
-                            Center(
-                              child: GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => _ImagePreviewScreen(
-                                        imageUrl: _serviceLogoUrl,
-                                        fieldName: 'Service Image',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Container(
-                                  margin: const EdgeInsets.only(bottom: 20),
-                                  width: 160,
-                                  height: 160,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(20),
-                                    color: Colors.grey.shade100,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.08),
-                                        blurRadius: 12,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(20),
-                                    child: Image.network(
-                                      _serviceLogoUrl,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.image_not_supported_outlined,
-                                        size: 60,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                          // ── Service icon (neutral, no credential imagery) ───────
+                          Center(
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 20),
+                              width: 120,
+                              height: 120,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(20),
+                                color: const Color(0xFFF0F4FF),
+                                border: Border.all(
+                                    color: const Color(0xFF4C4CFF)
+                                        .withOpacity(0.2),
+                                    width: 1.5),
+                              ),
+                              child: const Icon(
+                                Icons.assignment_outlined,
+                                size: 56,
+                                color: Color(0xFF4C4CFF),
                               ),
                             ),
-                          ],
+                          ),
                           // 📄 Download Form Template card — always show when template exists
                           if (_formTemplateUrl.isNotEmpty &&
                               _formTemplateUrl != 'None') ...[
@@ -1002,19 +1023,21 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
-                                      children: const [
+                                      children: [
                                         Text(
-                                          'Form Template Available',
-                                          style: TextStyle(
+                                          AppLocalizations.of(context)
+                                              .get('reference_form_title'),
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.w600,
                                             color: Color(0xFF1a1a1a),
                                             fontSize: 14,
                                           ),
                                         ),
-                                        SizedBox(height: 2),
+                                        const SizedBox(height: 2),
                                         Text(
-                                          'Download and fill the template before submitting',
-                                          style: TextStyle(
+                                          AppLocalizations.of(context)
+                                              .get('reference_form_subtitle'),
+                                          style: const TextStyle(
                                               fontSize: 12,
                                               color: Color(0xFF666666)),
                                         ),
@@ -1253,42 +1276,67 @@ class _ServiceFormScreenState extends State<ServiceFormScreen> {
                                   color:
                                       const Color(0xFF4C4CFF).withOpacity(0.3)),
                             ),
-                            child: Row(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(Icons.account_balance_wallet,
-                                    color: Color(0xFF4C4CFF), size: 22),
-                                const SizedBox(width: 12),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                Row(
                                   children: [
+                                    const Icon(Icons.account_balance_wallet,
+                                        color: Color(0xFF4C4CFF), size: 22),
+                                    const SizedBox(width: 12),
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          AppLocalizations.of(context).get(
+                                              'service_fee_breakdown_title'),
+                                          style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF666666)),
+                                        ),
+                                        Text(
+                                          '₹$_totalServiceFee',
+                                          style: const TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF4C4CFF)),
+                                        ),
+                                        if (_numberOfPrints > 1)
+                                          Text(
+                                            '₹$_serviceFee × $_numberOfPrints prints',
+                                            style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.grey.shade500),
+                                          ),
+                                      ],
+                                    ),
+                                    const Spacer(),
                                     const Text(
-                                      'Service Fee',
+                                      'Will be deducted\nfrom your wallet',
                                       style: TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF666666)),
+                                          fontSize: 11,
+                                          color: Color(0xFF888888)),
+                                      textAlign: TextAlign.right,
                                     ),
-                                    Text(
-                                      '₹$_totalServiceFee',
-                                      style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF4C4CFF)),
-                                    ),
-                                    if (_numberOfPrints > 1)
-                                      Text(
-                                        '₹$_serviceFee × $_numberOfPrints prints',
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade500),
-                                      ),
                                   ],
                                 ),
-                                const Spacer(),
-                                const Text(
-                                  'Will be deducted\nfrom your wallet',
-                                  style: TextStyle(
-                                      fontSize: 11, color: Color(0xFF888888)),
-                                  textAlign: TextAlign.right,
+                                const SizedBox(height: 10),
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    AppLocalizations.of(context)
+                                        .get('service_fee_breakdown_body'),
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      height: 1.4,
+                                      color: Color(0xFF555555),
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
