@@ -1,7 +1,7 @@
 name: jenisha_flutter
 description: Flutter port of the provided design
 publish_to: 'none'
-version: 1.0.3+4
+version: 1.0.3+5
 environment:
   sdk: '>=2.18.0 <4.0.0'
 

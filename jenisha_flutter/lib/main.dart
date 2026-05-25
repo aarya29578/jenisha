@@ -80,7 +80,7 @@ class JenishaApp extends StatelessWidget {
     return Consumer<LanguageProvider>(
       builder: (context, languageProvider, child) {
         return MaterialApp(
-          title: 'Jenisha CSC Assistance',
+          title: 'Jenisha Online Service',
           debugShowCheckedModeBanner: false,
           locale: languageProvider.locale,
           supportedLocales: const [

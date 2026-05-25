@@ -19,7 +19,7 @@ class AppLocalizations {
   // ── English ↔ Marathi dictionary ─────────────────────────────────────────
   static const Map<String, String> _en = {
     // General
-    'app_title': 'Jenisha CSC Assistance',
+    'app_title': 'Jenisha Online Service',
     'ok': 'OK',
     'cancel': 'Cancel',
     'close': 'Close',
@@ -412,7 +412,7 @@ class AppLocalizations {
 
   static const Map<String, String> _mr = {
     // General
-    'app_title': 'जेनिशा सीएससी सहाय्य',
+    'app_title': 'जेनिशा ऑनलाइन सेवा',
     'ok': 'ठीक आहे',
     'cancel': 'रद्द करा',
     'close': 'बंद करा',
